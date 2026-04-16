@@ -13,14 +13,14 @@ from .store import TaskStore
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 HELP_TEXT = """Commands:
-  task <title>
-  handoff <task_id> <from_role> <to_role> <message>
-  scope <task_id> <path> [path...]
-  review-done <task_id> <commit_message>
-  status [task_id]
-  roles
-  help
-  quit
+  !task <title>
+  !handoff <task_id> <from_role> <to_role> <message>
+  !scope <task_id> <path> [path...]
+  !review-done <task_id> <commit_message>
+  !status [task_id]
+  !roles
+  !health
+  !help
 """
 
 
@@ -46,6 +46,63 @@ def drain_outboxes(store: TaskStore) -> None:
         for message in store.read_outbox(role):
             task_id = message.get("task_id", "-")
             print(f"[outbox:{ROLE_SPECS[role].display_name}] {task_id} :: {message.get('message', '')}")
+
+
+def format_help_message() -> str:
+    return (
+        "**Codex Discord Agents 도움말**\n"
+        "`!task <title>` 새 task를 만들고 PM에게 전달합니다.\n"
+        "`!status [task_id]` 전체 task 목록 또는 특정 task 상태를 봅니다.\n"
+        "`!roles` 역할 구조와 채널 기본 흐름을 봅니다.\n"
+        "`!health` 라우팅/세션/역할 상태를 요약해서 봅니다.\n"
+        "`!handoff <task_id> <from_role> <to_role> <message>` 수동 handoff를 수행합니다.\n"
+        "`!scope <task_id> <path> [path...]` task write scope를 등록합니다.\n"
+        "`!review-done <task_id> <commit_message>` 리드 검토 완료 후 범위 제한 자동 커밋을 수행합니다.\n"
+        "\n"
+        "자연어로 바로 대화할 수도 있습니다.\n"
+        "- `#pm`, `#라우터` -> PM\n"
+        "- `#백엔드` -> BE Lead\n"
+        "- `#프론트엔드` -> FE Lead\n"
+        "- `#qa` -> QA\n"
+        "- `#보안` -> Security"
+    )
+
+
+def format_roles_message() -> str:
+    lines = ["**역할 구조**"]
+    for role in ROLE_SPECS.values():
+        lines.append(f"`{role.key}` / {role.display_name}: {role.summary}")
+    lines.append("")
+    lines.append("기본 거버넌스:")
+    lines.append("- PM이 작업을 정리하고 공유 task list를 관리합니다.")
+    lines.append("- BE Lead / FE Lead가 구현 범위를 분해하고 리뷰합니다.")
+    lines.append("- QA는 장애 지점과 회귀 시나리오를 찾아 리드에게 전달합니다.")
+    lines.append("- Security는 보안 리스크를 찾아 리드와 PM에게 공유합니다.")
+    return "\n".join(lines)
+
+
+def format_health_message(store: TaskStore, incoming_channel_roles: dict[int, str], outgoing_role_channels: dict[str, int]) -> str:
+    lines = ["**현재 운영 상태**"]
+    lines.append(f"- incoming route 수: `{len(incoming_channel_roles)}`")
+    lines.append(f"- outgoing route 수: `{len(outgoing_role_channels)}`")
+
+    tasks = list(store.list_tasks())
+    open_tasks = [task for task in tasks if task.get("status") not in {"done", "closed"}]
+    lines.append(f"- 전체 task 수: `{len(tasks)}`")
+    lines.append(f"- 진행중 task 수: `{len(open_tasks)}`")
+    lines.append("")
+    lines.append("역할 상태:")
+
+    for role in all_roles():
+        state = store.get_role_state(role)
+        session_flag = "있음" if state.get("session_id") else "없음"
+        status = state.get("status") or "unknown"
+        note = state.get("note") or "-"
+        lines.append(
+            f"- {ROLE_SPECS[role].display_name}: status=`{status}`, session=`{session_flag}`, note=`{note}`"
+        )
+
+    return "\n".join(lines)
 
 
 TASK_ID_PATTERN = re.compile(r"(TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
@@ -84,7 +141,7 @@ def run_local_repl() -> int:
     print("Agent Team Router (local mode)")
     print("Discord bot token not configured or discord.py not installed.")
     print("You can still create and route tasks locally from this pane.")
-    print(HELP_TEXT)
+    print(format_help_message())
 
     while True:
         drain_outboxes(store)
@@ -99,11 +156,13 @@ def run_local_repl() -> int:
         if raw in {"quit", "exit"}:
             break
         if raw == "help":
-            print(HELP_TEXT)
+            print(format_help_message())
             continue
         if raw == "roles":
-            for role in ROLE_SPECS.values():
-                print(f"{role.key}: {role.display_name} - {role.summary}")
+            print(format_roles_message())
+            continue
+        if raw == "health":
+            print(format_health_message(store, {}, {}))
             continue
         if raw.startswith("task "):
             title = raw[5:].strip()
@@ -145,7 +204,7 @@ def run_local_repl() -> int:
             continue
 
         print("Unknown command.")
-        print(HELP_TEXT)
+        print(format_help_message())
 
     return 0
 
@@ -291,6 +350,18 @@ def run_discord_bot() -> int:
                         requester_user_id=str(message.author.id),
                     )
                     await message.reply(f"Created task `{task['task_id']}` and routed it to PM.")
+                    return
+
+                if content == "!help":
+                    await message.reply(format_help_message())
+                    return
+
+                if content == "!roles":
+                    await message.reply(format_roles_message())
+                    return
+
+                if content == "!health":
+                    await message.reply(format_health_message(store, incoming_channel_roles, outgoing_role_channels))
                     return
 
                 if content.startswith("!scope "):

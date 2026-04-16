@@ -134,6 +134,9 @@ cp .agent_team.env.example .agent_team.env
 !review-done <task_id> <commit_message>
 !status
 !status <task_id>
+!roles
+!health
+!help
 ```
 
 `!review-done`은 리드 채널용 명령입니다.

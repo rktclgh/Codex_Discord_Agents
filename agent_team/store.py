@@ -266,3 +266,9 @@ class TaskStore:
 
     def get_task(self, task_id: str) -> Optional[Dict]:
         return self.load_tasks().get(task_id)
+
+    def get_role_state(self, role: str) -> Dict:
+        return (self.load_role_state().get(role) or {}).copy()
+
+    def list_role_states(self) -> Dict[str, Dict]:
+        return self.load_role_state()
