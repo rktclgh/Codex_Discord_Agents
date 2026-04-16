@@ -114,6 +114,14 @@ AGENT_TEAM_WORKSPACE_ROOT=/Users/your-name/Desktop/MyRealProject
 - `.venv/bin/python`을 사용하고
 - Discord 설정값이 있으면 자동으로 Discord 모드로 올라갑니다
 
+맥을 계속 켜둬야 외부에서 Discord로 작업을 시킬 수 있습니다. 잠자기 방지는 아래 스크립트로 켜고 끌 수 있습니다.
+
+```bash
+./scripts/agent_team_awake_on.sh
+./scripts/agent_team_awake_off.sh
+./scripts/agent_team_awake_status.sh
+```
+
 ## 7. 첫 테스트
 
 `#pm`에서 아래처럼 테스트할 수 있습니다.

@@ -477,6 +477,43 @@ AGENT_TEAM_CODEX_PERMISSION_MODE=read-only
 ./scripts/start_agent_team_tmux.sh --recreate
 ```
 
+### 잠자기 방지 켜기
+
+맥을 박아두고 Discord로 계속 작업시키고 싶다면 아래 스크립트를 쓰면 됩니다.
+
+```bash
+./scripts/agent_team_awake_on.sh
+```
+
+이 스크립트는:
+
+- `agent-team` tmux 세션이 없으면 먼저 띄우고
+- `caffeinate -dimsu`를 백그라운드로 실행해서
+- macOS 잠자기를 막습니다
+
+### 잠자기 방지 끄기
+
+밖에 들고 나가거나 배터리를 아껴야 할 때는 아래처럼 끌 수 있습니다.
+
+```bash
+./scripts/agent_team_awake_off.sh
+```
+
+이 명령은 `caffeinate`만 끄고, tmux 팀 세션은 그대로 둡니다.
+
+### 현재 상태 보기
+
+```bash
+./scripts/agent_team_awake_status.sh
+```
+
+출력 예시:
+
+```text
+sleep 방지: ON
+tmux 세션: ON (agent-team)
+```
+
 ### 세션 접속
 
 ```bash
