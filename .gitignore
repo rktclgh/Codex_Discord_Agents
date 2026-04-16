@@ -1,0 +1,9 @@
+.venv/
+.agent_team.env
+.codex-tmp/
+__pycache__/
+.DS_Store
+.idea/
+*.pem
+connect.sh
+start-tunnel.sh
