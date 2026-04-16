@@ -162,10 +162,27 @@ def processing_ack_message(role: str, task_id: str, is_new_task: bool = False) -
     )
 
 
-def format_report_body(message_text: str, report_format: Optional[str]) -> str:
+CODE_FENCE_WRAPPER_PATTERN = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+
+
+def normalize_report_text(message_text: str) -> str:
+    text = (message_text or "").strip()
+    while True:
+        match = CODE_FENCE_WRAPPER_PATTERN.match(text)
+        if not match:
+            break
+        text = (match.group(1) or "").strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def format_report_body(message_text: str, report_format: Optional[str], role_label: str, task_id: str) -> str:
+    normalized = normalize_report_text(message_text)
     if report_format == "codeblock":
-        return f"```\n{message_text}\n```"
-    return message_text
+        title = f"[{role_label} 최종 보고]"
+        ticket = f"티켓: {task_id}" if task_id and task_id != "-" else "티켓: -"
+        return f"```text\n{title}\n{ticket}\n\n{normalized}\n```"
+    return normalized
 
 
 TASK_ID_PATTERN = re.compile(r"(#\d+|TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
@@ -609,8 +626,16 @@ def run_discord_bot() -> int:
                         mention_text = mention_for_task(task, payload)
                     if mention_text is None:
                         mention_text = completion_mention_for_task(task, payload)
-                    message_body = format_report_body(payload.get("message", ""), payload.get("report_format"))
-                    body = f"{header}\n{message_body}"
+                    message_body = format_report_body(
+                        payload.get("message", ""),
+                        payload.get("report_format"),
+                        ROLE_SPECS[role].display_name,
+                        task_id,
+                    )
+                    if payload.get("report_format") == "codeblock":
+                        body = message_body
+                    else:
+                        body = f"{header}\n{message_body}"
                     if mention_text:
                         body = f"{mention_text}\n{body}"
                     try:
