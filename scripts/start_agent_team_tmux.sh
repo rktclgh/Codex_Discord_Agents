@@ -6,6 +6,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PA
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE_ROOT="${AGENT_TEAM_WORKSPACE_ROOT:-$(cd "${ROOT_DIR}/.." && pwd)}"
 SESSION_NAME="${TMUX_AGENT_SESSION:-agent-team}"
 RUNTIME_DIR="${TMUX_AGENT_RUNTIME_DIR:-${ROOT_DIR}/.codex-tmp/agent-team}"
 VENV_PYTHON="${ROOT_DIR}/.venv/bin/python"
@@ -100,7 +101,7 @@ send_role_banner() {
   local hint="$3"
 
   tmux send-keys -t "${target}" "clear" C-m
-  tmux send-keys -t "${target}" "printf '\n[%s]\n%s\nRuntime: %s\nWorkspace: %s\n\n' '${role_name}' '${hint}' '${RUNTIME_DIR}' '${ROOT_DIR}'" C-m
+  tmux send-keys -t "${target}" "printf '\n[%s]\n%s\nRuntime: %s\nWorkspace: %s\n\n' '${role_name}' '${hint}' '${RUNTIME_DIR}' '${WORKSPACE_ROOT}'" C-m
 }
 
 runner_command() {
@@ -167,7 +168,7 @@ tmux send-keys -t "${SESSION_NAME}:logs.1" "echo '[runtime]'; while true; do cle
 tmux select-pane -t "${SESSION_NAME}:logs.0" -T "Events"
 tmux select-pane -t "${SESSION_NAME}:logs.1" -T "Runtime"
 
-tmux select-window -t "${SESSION_NAME}:pm"
+tmux select-window -t "${SESSION_NAME}:router"
 
 echo "Created tmux session '${SESSION_NAME}'."
 echo "Runtime directory: ${RUNTIME_DIR}"

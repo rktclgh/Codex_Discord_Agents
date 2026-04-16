@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 import re
+from datetime import datetime
 
 from .config import ROLE_SPECS, workspace_root
 from .store import TaskStore
@@ -91,7 +92,18 @@ def summarize_message(role: str, item: Dict) -> str:
     base = item.get("message", "").strip() or "No message provided."
     task_id = item.get("task_id", "-")
     sender = item.get("from_role", "unknown")
-    return f"[{ROLE_SPECS[role].display_name}] received {item.get('type')} for {task_id} from {sender}: {base}"
+    compact = re.sub(r"\s+", " ", base).strip()
+    if len(compact) > 90:
+        compact = compact[:87] + "..."
+    return f"{timestamp()} [{ROLE_SPECS[role].display_name}] {item.get('type')} {task_id} <- {sender} | {compact}"
+
+
+def timestamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def log(role: str, message: str) -> None:
+    print(f"{timestamp()} [{ROLE_SPECS[role].display_name}] {message}", flush=True)
 
 
 def codex_exec_enabled() -> bool:
@@ -305,11 +317,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
         task,
         f"`{item.get('task_id', '-')}` {mode_label}를 시작했습니다.",
     )
-    print(
-        f"[{ROLE_SPECS[role].display_name}] Codex {'resume' if session_id else 'exec'} 시작 "
-        f"(workspace={WORKSPACE_ROOT}, permission={codex_permission_mode()})",
-        flush=True,
-    )
+    log(role, f"Codex {'resume' if session_id else 'exec'} 시작 | task={item.get('task_id', '-')} | permission={codex_permission_mode()}")
     try:
         process = subprocess.Popen(
             command,
@@ -319,7 +327,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
             stderr=subprocess.PIPE,
         )
     except Exception as exc:
-        print(f"Codex {'resume' if session_id else 'exec'} failed before completion for {role}: {type(exc).__name__}: {exc}", flush=True)
+        log(role, f"Codex {'resume' if session_id else 'exec'} 시작 실패 | {type(exc).__name__}: {exc}")
         return None
 
     task_id = item.get("task_id")
@@ -341,10 +349,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout_text, stderr_text = process.communicate()
-            print(
-                f"Codex {'resume' if session_id else 'exec'} cancelled for {role} task {task_id}: {(stderr_text or '').strip()}",
-                flush=True,
-            )
+            log(role, f"Codex {'resume' if session_id else 'exec'} 중단됨 | task={task_id}")
             store.clear_stop_request(role, task_id)
             store.clear_role_active_task(role)
             store.update_task(task_id, status="stopped")
@@ -380,10 +385,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
         if elapsed >= max_runtime:
             process.kill()
             stdout_text, stderr_text = process.communicate()
-            print(
-                f"Codex {'resume' if session_id else 'exec'} timed out after {max_runtime}s for {role}: {(stderr_text or '').strip()}",
-                flush=True,
-            )
+            log(role, f"Codex {'resume' if session_id else 'exec'} 타임아웃 | task={item.get('task_id', '-')} | {max_runtime}s")
             push_progress_update(
                 store,
                 role,
@@ -402,13 +404,13 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
 
     if completed_returncode != 0:
         stderr_text = (stderr_text or "").strip()
-        print(f"Codex {'resume' if session_id else 'exec'} returned {completed_returncode} for {role}: {stderr_text}", flush=True)
+        log(role, f"Codex {'resume' if session_id else 'exec'} 실패 | code={completed_returncode} | {stderr_text}")
         return None
 
     reply = extract_codex_text(stdout_text or "")
     next_session_id = session_id or extract_codex_session_id(stdout_text or "")
     if not reply:
-        print(f"Codex {'resume' if session_id else 'exec'} produced no agent message for {role}.", flush=True)
+        log(role, f"Codex {'resume' if session_id else 'exec'} 결과 없음")
         return None
 
     push_progress_update(
@@ -434,7 +436,7 @@ def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Di
     session_id = store.get_role_session(role)
     result = run_codex_for_role(store, role, item, task, prompt, session_id)
     if result is None and session_id:
-        print(f"Falling back to fresh Codex session for {role}.", flush=True)
+        log(role, f"기존 세션 지연으로 fresh exec 재시도 | task={item.get('task_id', '-')}")
         push_progress_update(
             store,
             role,
@@ -456,7 +458,7 @@ def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Di
     next_session_id = result.get("session_id")
     if next_session_id and next_session_id != session_id:
         store.set_role_session(role, next_session_id)
-        print(f"Stored Codex session for {role}: {next_session_id}", flush=True)
+        log(role, f"session 저장됨 | {next_session_id}")
 
     raw_reply = str(result["reply"]).strip()
     handoffs = parse_handoffs(raw_reply)
@@ -646,6 +648,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
             if to_role == role or not task_id:
                 continue
             store.handoff_task(task_id, role, to_role, handoff["message"])
+            log(role, f"작업 분배 | task={task_id} -> {ROLE_SPECS[to_role].display_name}")
             store.push_outbox(
                 role,
                 {
