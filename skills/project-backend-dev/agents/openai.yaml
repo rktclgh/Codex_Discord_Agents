@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backend Developer"
+  short_description: "Implement bounded backend work packets"
+  default_prompt: "Use $project-backend-dev to implement this backend packet within its declared write scope and summarize validation."

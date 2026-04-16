@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project PM"
+  short_description: "Plan scope, docs, and parallel work packets"
+  default_prompt: "Use $project-pm with xhigh reasoning effort to orchestrate the leads, developers, QA, and security reviewer, and use Notion workflows for documentation when requested, then deliver one detailed user-facing report with status, decisions, and next actions."

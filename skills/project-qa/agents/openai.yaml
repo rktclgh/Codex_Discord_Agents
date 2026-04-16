@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA"
+  short_description: "Turn acceptance criteria into test coverage"
+  default_prompt: "Use $project-qa to predict failure modes, use Playwright and other available test skills when helpful, convert issues into actionable defect packets, and hand them back to the leads with a clear release-risk summary."

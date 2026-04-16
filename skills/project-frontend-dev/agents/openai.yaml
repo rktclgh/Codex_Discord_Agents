@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Developer"
+  short_description: "Implement bounded frontend work packets"
+  default_prompt: "Use $project-frontend-dev to implement this frontend packet within its declared write scope and summarize user-visible validation."

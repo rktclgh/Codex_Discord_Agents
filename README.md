@@ -1,70 +1,65 @@
 # Discord Agents
 
-Persistent Discord role agents powered by local Codex sessions, `tmux`, and a lightweight Python router.
+Discord 안에서 `PM`, `BE Lead`, `BE Dev`, `FE Lead`, `FE Dev`, `QA`, `Security` 역할을 나눠 운영할 수 있도록 만든 로컬 멀티 에이전트 오케스트레이션 프로젝트입니다.
 
-This project lets you run a small multi-role software team inside Discord:
+이 저장소는 다음 목표를 위해 만들어졌습니다.
 
-- `PM`
-- `BE Lead`
-- `BE Dev`
-- `FE Lead`
-- `FE Dev`
-- `QA`
-- `Security`
+- Discord를 팀 커뮤니케이션 UI로 사용
+- 역할별 채널에서 자연어로 대화
+- 각 역할이 로컬 `Codex` 세션을 유지하며 맥락을 이어서 응답
+- `tmux`로 로컬 런타임을 관찰하고 관리
+- 중요 리스크가 생기면 오너를 자동 멘션
+- 리드 검토 완료 시 범위 제한 커밋까지 자동화
 
-Each role can:
+이 프로젝트는 특정 서비스 코드베이스에 종속되지 않도록 분리되어 있으며, 다른 사용자도 자신의 저장소와 Discord 서버에 맞게 바로 가져다 쓸 수 있게 구성되어 있습니다.
 
-- listen in its own Discord channel
-- keep a long-running Codex conversation context
-- respond in Korean
-- coordinate through a router feed
-- escalate important warnings with a direct owner mention
-- help leads review and commit scoped work on the current branch
+## 한눈에 보기
 
-This repository is designed to be usable by other people without the original VlaInter project.
+이 프로젝트는 크게 4개 층으로 이루어져 있습니다.
 
-## What This Is
+1. Discord
+사용자가 역할별 채널에서 에이전트와 대화하는 인터페이스입니다.
 
-This is **not** a hosted SaaS and **not** a cloud-only Discord bot.
+2. Router
+Discord 메시지를 받아 적절한 역할 inbox로 보내고, 역할 응답을 다시 Discord 채널과 Router Feed로 중계합니다.
 
-It is a **local orchestration project** that runs on your machine:
+3. Role Runner
+PM, Backend Lead, QA 같은 역할별 런타임입니다. 각 역할은 자기 역할에 맞는 응답과 작업 흐름을 유지합니다.
 
-- Discord bot for message ingress/egress
-- local Python router
-- per-role worker runtime
-- persistent Codex sessions via `codex exec` + `codex exec resume`
-- `tmux` session for visibility and process management
+4. Codex Session
+각 역할은 로컬 `codex exec` / `codex exec resume`를 사용해 장기 대화 세션을 유지합니다.
 
-Think of it as:
+## 이 프로젝트가 하는 일
 
-1. Discord is the chat surface.
-2. `tmux` is the local operations console.
-3. Codex is the actual role brain.
-4. The Python router is the glue.
+- 역할별 Discord 채널 라우팅
+- 역할별 지속 Codex 세션 유지
+- 한국어 역할 대화
+- `Router Feed`를 통한 전체 팀 상황 가시화
+- `[주의]`, `[차단]`, `[리스크]` 메시지에 대한 오너 자동 멘션
+- Task ID 기반 작업 추적
+- Lead 채널에서 범위 제한 `git commit`
 
-## Core Features
+## 이 프로젝트가 아닌 것
 
-- Role-based Discord channels
-- Persistent per-role Codex memory
-- Router feed for cross-role visibility
-- Owner mention on `[주의]`, `[차단]`, `[리스크]`
-- Lead-only scoped auto-commit flow
-- Task registry with task IDs
-- Shared task handoff model
-- Local-first setup with no required database
+- SaaS 제품이 아닙니다.
+- 클라우드에서 자동으로 돌아가는 완성형 서비스가 아닙니다.
+- 대규모 워크플로 엔진이나 데이터베이스 기반 협업툴이 아닙니다.
 
-## Architecture
+이 프로젝트는 기본적으로 **내 로컬 머신에서 실행하는 운영용 도구**입니다.
+
+## 아키텍처
 
 ```mermaid
 flowchart TD
-    U["User in Discord"] --> R["Discord Router"]
-    R --> PM["PM Role Session"]
-    R --> BEL["BE Lead Session"]
-    R --> BED["BE Dev Session"]
-    R --> FEL["FE Lead Session"]
-    R --> FED["FE Dev Session"]
-    R --> QA["QA Session"]
-    R --> SEC["Security Session"]
+    U["Discord 사용자"] --> D["Discord 채널"]
+    D --> R["Discord Router"]
+    R --> PM["PM Runner"]
+    R --> BEL["BE Lead Runner"]
+    R --> BED["BE Dev Runner"]
+    R --> FEL["FE Lead Runner"]
+    R --> FED["FE Dev Runner"]
+    R --> QA["QA Runner"]
+    R --> SEC["Security Runner"]
 
     PM --> C["Local Codex Session"]
     BEL --> C
@@ -74,13 +69,12 @@ flowchart TD
     QA --> C
     SEC --> C
 
-    R --> S["Task Store / Outbox / Role State"]
-    S --> T["tmux Windows"]
-    R --> D["Discord Role Channels"]
-    R --> RF["Router Feed Channel"]
+    R --> S["Task Store / Role State / Outbox"]
+    S --> T["tmux 관찰 창"]
+    R --> RF["Router Feed"]
 ```
 
-## Repository Layout
+## 폴더 구조
 
 ```text
 Discord_Agents/
@@ -92,77 +86,160 @@ Discord_Agents/
 │   ├── requirements.txt
 │   ├── runner.py
 │   └── store.py
-├── docs/
-│   ├── discord-bot-setup.md
-│   └── discord-tmux-orchestrator-mvp.md
 ├── scripts/
 │   ├── agent_team_cli.sh
 │   ├── attach_agent_team_tmux.sh
 │   ├── install_agent_team_deps.sh
 │   ├── start_agent_team_tmux.sh
 │   └── stop_agent_team_tmux.sh
+├── skills/
+│   ├── project-pm/
+│   ├── project-backend-lead/
+│   ├── project-backend-dev/
+│   ├── project-frontend-lead/
+│   ├── project-frontend-dev/
+│   ├── project-qa/
+│   ├── project-security-review/
+│   └── README.md
+├── docs/
+│   ├── discord-bot-setup.md
+│   └── discord-tmux-orchestrator-mvp.md
 ├── .agent_team.env.example
 ├── .gitignore
 └── README.md
 ```
 
-## Requirements
+## 핵심 컴포넌트 설명
 
-You need all of the following on the local machine:
+### `agent_team/discord_router.py`
 
-- macOS or Linux shell environment
-- Python 3.9+
+이 프로젝트의 중심입니다.
+
+- Discord 메시지 수신
+- 역할별 채널 -> 역할 라우팅
+- 역할 응답 -> 대상 채널 전송
+- Router Feed 전송
+- `!task`, `!scope`, `!review-done`, `!status` 같은 명령 처리
+
+### `agent_team/runner.py`
+
+각 역할의 실행기입니다.
+
+- 역할 inbox를 읽음
+- 역할별 프롬프트를 구성함
+- `codex exec` 또는 `codex exec resume` 호출
+- 응답을 outbox에 기록
+
+### `agent_team/store.py`
+
+파일 기반 상태 저장소입니다.
+
+- task registry
+- inbox / outbox
+- role state
+- 역할별 Codex session id
+
+DB 없이도 작동할 수 있게 단순한 파일 저장 구조를 사용합니다.
+
+### `agent_team/git_ops.py`
+
+리드 검토 완료 후 자동 커밋을 위한 유틸리티입니다.
+
+- 현재 브랜치 확인
+- `write_scope` 범위만 stage
+- 범위 제한 commit 생성
+
+## 팀 역할 모델
+
+이 저장소는 기본적으로 아래 7개 역할을 가정합니다.
+
+- `PM`
+- `BE Lead`
+- `BE Dev`
+- `FE Lead`
+- `FE Dev`
+- `QA`
+- `Security`
+
+각 역할의 행동 기준은 `skills/` 폴더에 있는 Codex 팀 스킬 문서에 정리되어 있습니다.
+
+즉 이 저장소는 단순히 “봇 코드”만 있는 게 아니라:
+
+- 역할 정의
+- 협업 규칙
+- 작업 분배 기준
+- 리뷰와 보고 방식
+
+까지 함께 제공합니다.
+
+## 왜 `skills/` 폴더를 같이 넣었나
+
+다른 사람이 이 저장소를 봤을 때 가장 궁금한 건 보통 이겁니다.
+
+- PM은 정확히 뭘 하는가
+- Backend Lead는 어떤 기준으로 리뷰하는가
+- QA는 어떤 방식으로 장애를 찾는가
+- Security는 어떤 관점으로 이슈를 올리는가
+
+이걸 코드만 보고 이해하기는 어렵습니다.
+
+그래서 `skills/`를 같이 넣어두면:
+
+- 역할의 의도
+- 협업 거버넌스
+- reasoning 기준
+- handoff 방식
+
+을 함께 전달할 수 있습니다.
+
+자세한 내용은 [skills/README.md](/Users/songchiho/Desktop/Task/vlaInter/Discord_Agents/skills/README.md)를 보시면 됩니다.
+
+## 사전 준비물
+
+이 저장소를 실제로 쓰려면 아래가 필요합니다.
+
+- macOS 또는 Linux 환경
+- Python 3.9 이상
 - `tmux`
-- local `git`
-- local `codex` CLI already installed and authenticated
-- a Discord bot token
-- a Discord server where the bot has access to your channels
+- `git`
+- 로컬에 설치된 `codex` CLI
+- Codex 로그인 상태
+- Discord Bot Token
+- Discord 서버와 채널
 
-## Important Security Note
+## 설치 방법
 
-By default this project is configured to run role Codex sessions with:
+### 1. 저장소 클론
 
-```text
-AGENT_TEAM_CODEX_PERMISSION_MODE=danger-full-access
+```bash
+git clone https://github.com/rktclgh/Discord_Agents.git
+cd Discord_Agents
 ```
 
-That means role sessions can execute with broad permissions.
-
-This is intentional for low-friction local workflows, but you should only use it:
-
-- on a machine you control
-- in a repository you trust
-- with strong lead/PM governance
-
-If you want a safer setup, change the mode to:
-
-- `workspace-write`
-- `read-only`
-
-## Step 1. Install Dependencies
-
-From the repository root:
+### 2. 의존성 설치
 
 ```bash
 ./scripts/install_agent_team_deps.sh
 ```
 
-This will:
+이 스크립트는:
 
-- create a local `.venv`
-- install `discord.py`
+- `.venv` 생성
+- `discord.py` 설치
 
-## Step 2. Prepare Environment Variables
+를 수행합니다.
 
-Copy the example file:
+### 3. 환경 파일 생성
 
 ```bash
 cp .agent_team.env.example .agent_team.env
 ```
 
-Fill in your real values.
+그다음 `.agent_team.env`에 실제 값을 채웁니다.
 
-### Example
+## 환경 변수 설명
+
+예시:
 
 ```env
 DISCORD_BOT_TOKEN=
@@ -187,66 +264,88 @@ AGENT_TEAM_CODEX_TIMEOUT_SECONDS=120
 AGENT_TEAM_CODEX_PERMISSION_MODE=danger-full-access
 ```
 
-### Variable Guide
+설명:
 
 `DISCORD_BOT_TOKEN`
 
-- Your Discord bot token.
+- Discord 봇 토큰입니다.
 
 `DISCORD_ROUTER_CHANNEL_ID`
 
-- A central channel where mirrored updates are shown.
-- Good for leadership oversight and cross-role visibility.
+- 전체 공유 이슈와 Router Feed를 모아보는 채널입니다.
 
 `DISCORD_PM_CHANNEL_ID`
 
-- PM/user-facing coordination channel.
+- PM과 대화하는 채널입니다.
 
 `DISCORD_BACKEND_CHANNEL_ID`
 
-- Backend shared channel.
-- User messages here are routed to `BE Lead`.
-- `BE Lead` and `BE Dev` can both respond into this channel.
+- 백엔드 공용 채널입니다.
+- 기본적으로 이 채널의 사용자 메시지는 `BE Lead`에게 들어갑니다.
 
 `DISCORD_FRONTEND_CHANNEL_ID`
 
-- Frontend shared channel.
-- User messages here are routed to `FE Lead`.
-- `FE Lead` and `FE Dev` can both respond into this channel.
+- 프론트엔드 공용 채널입니다.
+- 기본적으로 이 채널의 사용자 메시지는 `FE Lead`에게 들어갑니다.
 
 `DISCORD_QA_CHANNEL_ID`
 
-- QA-specific channel.
+- QA 전용 채널입니다.
 
 `DISCORD_SECURITY_CHANNEL_ID`
 
-- Security-specific channel.
+- 보안 전용 채널입니다.
 
 `DISCORD_OWNER_USER_ID`
 
-- Discord user ID that should be mentioned on important alerts.
-- If a role reply begins with `[주의]`, `[차단]`, or `[리스크]`, that owner is pinged.
-
-`DISCORD_BE_LEAD_CHANNEL_ID`, `DISCORD_BE_DEV_CHANNEL_ID`, `DISCORD_FE_LEAD_CHANNEL_ID`, `DISCORD_FE_DEV_CHANNEL_ID`
-
-- Optional fine-grained overrides if you want separate lead/dev channels instead of shared backend/frontend channels.
+- `[주의]`, `[차단]`, `[리스크]` 메시지가 발생했을 때 자동 멘션할 Discord 사용자 ID입니다.
 
 `AGENT_TEAM_USE_CODEX_EXEC`
 
-- `1` means role workers call real local Codex.
-- `0` means fallback non-Codex behavior.
+- `1`이면 실제 Codex 실행기를 사용합니다.
+- `0`이면 fallback 응답만 사용합니다.
 
 `AGENT_TEAM_CODEX_TIMEOUT_SECONDS`
 
-- Per-message timeout for Codex execution.
+- 역할별 응답 생성 타임아웃입니다.
 
 `AGENT_TEAM_CODEX_PERMISSION_MODE`
 
-- Permission level for role Codex sessions.
+- Codex 실행 권한 모드입니다.
+- 기본은 `danger-full-access` 입니다.
 
-## Step 3. Create Discord Channels
+## 권한 모드에 대한 주의
 
-Recommended structure:
+이 프로젝트는 기본적으로 다음 설정을 사용합니다.
+
+```text
+AGENT_TEAM_CODEX_PERMISSION_MODE=danger-full-access
+```
+
+즉, 권한 요청 때문에 흐름이 끊기지 않게 하는 대신 실행 권한이 넓습니다.
+
+이 설정을 쓸 때는 아래 운영 원칙이 중요합니다.
+
+- PM이 애매하거나 무리한 요청을 먼저 걸러야 함
+- Lead가 위험하거나 말이 안 되는 요청을 차단해야 함
+- Dev는 handoff 받은 범위 중심으로 작업해야 함
+- QA / Security는 리스크를 태그로 명확히 올려야 함
+
+원하면 아래처럼 더 안전하게 바꿀 수 있습니다.
+
+```env
+AGENT_TEAM_CODEX_PERMISSION_MODE=workspace-write
+```
+
+또는
+
+```env
+AGENT_TEAM_CODEX_PERMISSION_MODE=read-only
+```
+
+## Discord 채널 추천 구조
+
+권장 채널:
 
 - `#router`
 - `#pm`
@@ -255,38 +354,40 @@ Recommended structure:
 - `#qa`
 - `#security`
 
-Recommended routing:
+권장 의미:
 
-- `#router` -> PM entrypoint + router feed view
-- `#pm` -> PM
-- `#backend` -> BE Lead by default
-- `#frontend` -> FE Lead by default
-- `#qa` -> QA
-- `#security` -> Security
+- `#router`: 전체 공유/이슈 관찰용
+- `#pm`: PM과 직접 대화
+- `#backend`: 백엔드 리드/개발 관련
+- `#frontend`: 프론트엔드 리드/개발 관련
+- `#qa`: QA 관련
+- `#security`: 보안 관련
 
-## Step 4. Start the Local Team
+## 실행 방법
+
+### 팀 세션 시작
 
 ```bash
 ./scripts/start_agent_team_tmux.sh --recreate
 ```
 
-Attach to the session:
+### 세션 접속
 
 ```bash
 ./scripts/attach_agent_team_tmux.sh
 ```
 
-Stop everything:
+### 세션 종료
 
 ```bash
 ./scripts/stop_agent_team_tmux.sh
 ```
 
-## tmux Layout
+## tmux 구조
 
-The default session is named `agent-team`.
+기본 세션 이름은 `agent-team` 입니다.
 
-Windows:
+윈도우:
 
 - `router`
 - `pm`
@@ -295,60 +396,58 @@ Windows:
 - `review`
 - `logs`
 
-Pane layout:
+pane 구조:
 
-- `backend`: `BE Lead` + `BE Dev`
-- `frontend`: `FE Lead` + `FE Dev`
-- `review`: `QA` + `Security`
+- `backend`: `BE Lead` / `BE Dev`
+- `frontend`: `FE Lead` / `FE Dev`
+- `review`: `QA` / `Security`
 
-## How Persistent Role Memory Works
+## 역할별 지속 세션 방식
 
-Each role stores its own Codex `session_id`.
+각 역할은 자기만의 Codex 세션을 가집니다.
 
-Flow:
+흐름:
 
-1. first role message -> `codex exec`
-2. router extracts `thread.started`
-3. role state stores the session id
-4. next role message -> `codex exec resume <session_id>`
+1. 첫 메시지 -> `codex exec`
+2. `thread.started`에서 세션 ID 추출
+3. role state에 저장
+4. 다음 메시지부터 -> `codex exec resume <session_id>`
 
-This means:
+즉:
 
-- PM remembers PM conversations
-- QA remembers QA conversations
-- BE Lead remembers backend lead conversations
+- PM은 PM의 대화 맥락을 유지
+- QA는 QA의 대화 맥락을 유지
+- BE Lead는 백엔드 리드 맥락을 유지
 
-Memory is currently **persistent per role**, not per task.
+현재는 **역할별 지속 세션**이며, **task별 세션 분리**는 아직 아닙니다.
 
-## How to Talk to the Agents
+## Discord에서 사용하는 방법
 
-### Natural Language Mode
+### 1. 자연어로 바로 말하기
 
-You can just talk normally in the role channels.
+예를 들면:
 
-Examples:
-
-In `#pm`
+`#pm`
 
 ```text
 결제 콜백 세션 만료 문제를 작업 단위로 쪼개 주세요.
 ```
 
-In `#backend`
+`#backend`
 
 ```text
-TASK-20260416-123456-abcd 기준으로 백엔드 리스크부터 정리해 주세요.
+TASK-20260416-123456-abcd 기준으로 백엔드 리스크를 먼저 정리해 주세요.
 ```
 
-In `#qa`
+`#qa`
 
 ```text
-이 플로우에서 재현 가능한 실패 시나리오를 먼저 뽑아 주세요.
+이 흐름에서 재현 가능한 실패 시나리오를 먼저 뽑아 주세요.
 ```
 
-### Command Mode
+### 2. 명령어 사용하기
 
-Supported commands:
+지원 명령:
 
 ```text
 !task <title>
@@ -359,11 +458,11 @@ Supported commands:
 !status <task_id>
 ```
 
-## Task Model
+## Task 모델
 
-Tasks are stored in a local JSON task registry.
+task는 파일 기반 registry에 저장됩니다.
 
-Each task contains:
+포함 정보:
 
 - `task_id`
 - `title`
@@ -374,7 +473,7 @@ Each task contains:
 - `write_scope`
 - `requester_user_id`
 
-Task IDs look like:
+예시 ID:
 
 ```text
 TASK-20260416-160614-8125
@@ -382,169 +481,171 @@ TASK-20260416-160614-8125
 
 ## Router Feed
 
-The router feed mirrors role updates from other channels into `#router`.
+`#router` 채널은 단순 PM 채널이 아니라 전체 팀 공유 채널 역할도 합니다.
 
-Use it when you want:
+여기서 볼 수 있는 것:
 
-- one place to watch all issue sharing
-- a leadership dashboard for PM/lead activity
-- a single place to catch blockers and risks
+- 리드가 다른 채널로 보낸 이슈
+- QA / Security가 올린 위험 신호
+- PM/Lead handoff 흐름
+- cross-role 협업 상황
 
-## Owner Mentions on Alerts
+즉 “에이전트끼리 현재 어떤 이슈를 공유하고 있는가”를 한 곳에서 볼 수 있도록 만든 채널입니다.
 
-If a role message starts with one of these exact tags:
+## 오너 멘션 규칙
+
+역할 응답이 아래 태그 중 하나로 시작하면:
 
 - `[주의]`
 - `[차단]`
 - `[리스크]`
 
-then the configured owner account is mentioned:
+설정된 오너 계정을 자동 멘션합니다.
 
-- in the original role channel
-- in the router feed
+멘션 위치:
 
-This is useful for:
+- 원래 역할 채널
+- Router Feed
 
-- blockers
-- dangerous actions
-- security issues
-- infra failures
-- review risks
+예:
 
-## Lead Review and Auto Commit
+```text
+[리스크] 세션 만료 복구 경로가 없어 결제 성공 후 실패처럼 보일 수 있습니다.
+```
 
-Lead channels can finalize a reviewed task with auto-commit.
+이런 메시지는 자동으로 오너 멘션과 함께 올라갑니다.
 
-### 1. Register scope
+## Lead 검토 완료 후 자동 커밋
+
+리드가 검토를 마친 뒤, task 범위만 현재 브랜치에 커밋할 수 있습니다.
+
+### 1. 작업 범위 등록
 
 ```text
 !scope TASK-20260416-123456-abcd agent_team/runner.py agent_team/discord_router.py
 ```
 
-### 2. Complete review and commit
+### 2. 리드 검토 완료 커밋
 
-In the backend or frontend lead channel:
+백엔드/프론트 리드 채널에서:
 
 ```text
 !review-done TASK-20260416-123456-abcd [fix] finish backend lead review
 ```
 
-### What Happens
+이때 실제로 하는 일:
 
-- only the registered `write_scope` files are staged
-- the current branch is used
-- a commit is created
-- PM receives a handoff update
-- the Discord channel gets branch + commit hash feedback
+- `write_scope`에 등록된 파일만 stage
+- 현재 브랜치 기준 commit 수행
+- PM에게 상태 handoff
+- Discord 채널에 브랜치/커밋 해시 보고
 
-### Safety Behavior
+### 안전장치
 
-Auto commit will refuse to run when:
+다음 경우 자동 커밋을 거부합니다.
 
-- there is no `write_scope`
-- there are no changes in the scoped paths
-- Git errors occur
-- the branch is invalid or detached
+- `write_scope` 없음
+- 범위 안에 변경 사항 없음
+- detached HEAD
+- git 오류 발생
 
-This avoids accidentally committing the entire repository.
+즉 저장소 전체를 실수로 커밋하지 않도록 막아둔 구조입니다.
 
-## Recommended Team Governance
+## 스킬 문서 사용법
 
-If you run with broad permissions, use this discipline:
+역할별 스킬은 `skills/` 폴더에 있습니다.
 
-- PM filters ambiguous or high-risk requests
-- Leads reject destructive or unreasonable execution
-- Dev roles only act within scoped work packets
-- QA and Security report risks with explicit tags
-- Owner is pinged on serious issues
+포함된 역할:
 
-Recommended command chain:
+- `project-pm`
+- `project-backend-lead`
+- `project-backend-dev`
+- `project-frontend-lead`
+- `project-frontend-dev`
+- `project-qa`
+- `project-security-review`
 
-1. user speaks to PM
-2. PM decomposes
-3. lead reviews and delegates
-4. dev implements
-5. QA/Security report back
-6. lead approves
-7. lead commits scoped work
-8. PM reports final status
+이 문서들을 보면:
 
-## Troubleshooting
+- 각 역할이 무엇을 책임지는지
+- 어떤 reasoning 수준을 기대하는지
+- handoff와 review를 어떻게 해야 하는지
 
-### The bot replies in Discord but does not remember context
+를 바로 이해할 수 있습니다.
 
-Check:
+## 추천 운영 방식
 
-- `AGENT_TEAM_USE_CODEX_EXEC=1`
-- role session ids in runtime state
-- Codex CLI authentication
+권장 흐름:
 
-### The bot does not answer in Discord
+1. 사용자 -> PM
+2. PM -> Lead 분해
+3. Lead -> Dev 작업 분배
+4. QA / Security -> Lead 피드백
+5. Lead 검토 완료
+6. scoped auto-commit
+7. PM 최종 보고
 
-Check:
+## 트러블슈팅
+
+### Discord에 답이 안 온다
+
+확인할 것:
 
 - bot token
-- channel IDs
-- tmux session is running
-- `router` window logs
-- `logs` window events/outbox
+- channel ID
+- tmux 세션 실행 여부
+- `router` 윈도우 로그
+- `logs` 윈도우 outbox/events
 
-### Codex takes too long
+### 역할이 이전 대화를 기억하지 못한다
 
-Increase:
+확인할 것:
+
+- `AGENT_TEAM_USE_CODEX_EXEC=1`
+- Codex 로그인 상태
+- role state에 `session_id`가 저장되는지
+
+### Codex 응답이 너무 느리다
+
+타임아웃을 늘립니다.
 
 ```env
 AGENT_TEAM_CODEX_TIMEOUT_SECONDS=180
 ```
 
-### You want fewer privileges
+### 자동 커밋이 안 된다
 
-Change:
+대부분 아래 둘 중 하나입니다.
 
-```env
-AGENT_TEAM_CODEX_PERMISSION_MODE=workspace-write
-```
+- `!scope`를 등록하지 않음
+- 해당 범위에 아직 변경 사항이 없음
 
-### Auto commit says there is no scope
-
-Register scope first:
-
-```text
-!scope TASK-... path/to/file path/to/another/file
-```
-
-## Files That Must Never Be Committed
-
-Do not commit:
+## 절대 커밋하면 안 되는 것
 
 - `.agent_team.env`
-- bot tokens
-- private SSH keys
-- local runtime data in `.codex-tmp/`
-- personal IDE settings
+- Discord bot token
+- 개인 키
+- 로컬 runtime 데이터 (`.codex-tmp/`)
+- 개인 IDE 설정
 
-This repository includes `.gitignore` rules for the common local-only files.
+이 저장소에는 이를 위한 `.gitignore`가 포함되어 있습니다.
 
-## Suggested Next Upgrades
+## 다음 확장 아이디어
 
-If you want to evolve this system further:
+- task별 persistent Codex session
+- `fork` 기반 심화 조사 세션
+- Router Feed embed 스타일 개선
+- PR 생성 자동화
+- 간단한 웹 대시보드
 
-1. task-scoped persistent Codex sessions
-2. `fork`-based deep investigation threads
-3. message embeds for Router Feed severity
-4. PR creation after lead review
-5. richer shared task board UI
-6. remote deployment instead of local-only runtime
+## 빠른 시작 체크리스트
 
-## Quick Start Checklist
-
-1. Install `tmux`
-2. Install `codex`
-3. Authenticate Codex locally
-4. Create a Discord bot
-5. Create your role channels
-6. Fill `.agent_team.env`
-7. Run `./scripts/install_agent_team_deps.sh`
-8. Run `./scripts/start_agent_team_tmux.sh --recreate`
-9. Talk to `#pm` or `#router`
-10. Watch `#router` for team-wide updates
+1. `tmux` 설치
+2. `codex` 설치 및 로그인
+3. Discord bot 생성
+4. 역할 채널 생성
+5. `.agent_team.env` 작성
+6. `./scripts/install_agent_team_deps.sh`
+7. `./scripts/start_agent_team_tmux.sh --recreate`
+8. `#pm` 또는 `#router`에서 대화 시작
+9. `#router`에서 전체 팀 공유사항 확인
