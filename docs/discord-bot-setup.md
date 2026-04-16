@@ -100,7 +100,8 @@ AGENT_TEAM_WORKSPACE_ROOT=/Users/your-name/Desktop/MyRealProject
 - `DISCORD_CHANNEL_ID`: fallback 용 기본 PM 채널
 - `DISCORD_BE_LEAD_CHANNEL_ID` 같은 세부 override 채널 ID
 - `AGENT_TEAM_USE_CODEX_EXEC=1`: 각 역할이 실제 `codex exec`를 사용하도록 설정
-- `AGENT_TEAM_CODEX_TIMEOUT_SECONDS=120`: 역할별 응답 생성 타임아웃
+- `AGENT_TEAM_CODEX_MODEL=gpt-5.4`: 각 역할 Codex 세션 기본 모델
+- `AGENT_TEAM_CODEX_TIMEOUT_SECONDS=0`: 역할별 응답 생성 타임아웃 (`0`이면 무제한)
 - `AGENT_TEAM_CODEX_PERMISSION_MODE=danger-full-access`: 권한 질의 없이 넓은 권한으로 Codex 세션 실행
 
 ## 6. tmux 팀 세션 재생성

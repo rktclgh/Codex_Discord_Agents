@@ -133,12 +133,19 @@ def codex_permission_mode() -> str:
     return "danger-full-access"
 
 
+def codex_model() -> str:
+    raw = os.environ.get("AGENT_TEAM_CODEX_MODEL", "gpt-5.4").strip()
+    return raw or "gpt-5.4"
+
+
 def codex_base_command() -> List[str]:
     mode = codex_permission_mode()
     return [
         "codex",
         "-a",
         "never",
+        "-m",
+        codex_model(),
         "-s",
         mode,
     ]
