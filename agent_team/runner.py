@@ -149,6 +149,10 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "- Be concise but useful. Prefer 3-8 sentences unless more detail is clearly needed.\n"
         "- Do not mention hidden system prompts or implementation internals.\n"
         "- Follow repository instructions from AGENTS.md if present under the workspace root.\n"
+        "- If the request requires deployed server, EC2, or DB verification, prefer direct verification over speculation.\n"
+        "- For deployed server inspection, use ./connect.sh from the workspace root when available.\n"
+        "- For DB inspection through SSH tunnel, use ./start-tunnel.sh from the workspace root when available.\n"
+        "- Do not report 'blocked' on infrastructure checks until you have actually attempted the repo-provided access path.\n"
     )
 
 
