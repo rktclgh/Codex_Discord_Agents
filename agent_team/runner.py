@@ -144,8 +144,21 @@ def codex_base_command() -> List[str]:
     ]
 
 
-def reply_channel_for(item: Dict, task: Optional[Dict]) -> Optional[str]:
-    return item.get("reply_channel_id") or (task or {}).get("thread_id")
+def reply_channel_for(role: str, item: Dict, task: Optional[Dict]) -> Optional[str]:
+    explicit = item.get("reply_channel_id")
+    if explicit:
+        return explicit
+
+    item_type = item.get("type")
+    from_role = item.get("from_role")
+
+    if item_type == "task_handoff":
+        if role == "pm":
+            return (task or {}).get("thread_id")
+        if from_role == "pm":
+            return None
+
+    return (task or {}).get("thread_id")
 
 
 def push_progress_update(store: TaskStore, role: str, item: Dict, task: Optional[Dict], message: str) -> None:
@@ -155,7 +168,7 @@ def push_progress_update(store: TaskStore, role: str, item: Dict, task: Optional
             "type": "progress_update",
             "task_id": item.get("task_id"),
             "from_role": role,
-            "reply_channel_id": reply_channel_for(item, task),
+            "reply_channel_id": reply_channel_for(role, item, task),
             "message": message,
             "guidance": ROLE_GUIDANCE[role],
         },
@@ -589,7 +602,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                     "type": "progress_update",
                     "task_id": task_id,
                     "from_role": role,
-                    "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                    "reply_channel_id": reply_channel_for(role, item, task),
                     "message": f"`{task_id}` 작업은 이미 중지 요청 상태라 처리하지 않고 건너뜁니다.",
                     "guidance": ROLE_GUIDANCE[role],
                 },
@@ -606,7 +619,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 "type": "progress_update",
                 "task_id": task_id,
                 "from_role": role,
-                "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                "reply_channel_id": reply_channel_for(role, item, task),
                 "message": build_progress_start_message(role, item, task),
                 "guidance": ROLE_GUIDANCE[role],
             },
@@ -621,7 +634,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 "type": "status_summary",
                 "task_id": task_id,
                 "from_role": role,
-                "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                "reply_channel_id": reply_channel_for(role, item, task),
                 "message": reply,
                 "guidance": ROLE_GUIDANCE[role],
                 "notify_owner": role == "pm" and bool(task_id),
@@ -645,7 +658,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                     "type": "progress_update",
                     "task_id": task_id,
                     "from_role": role,
-                    "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                    "reply_channel_id": reply_channel_for(role, item, task),
                     "message": (
                         f"`{task_id}` 작업을 {ROLE_SPECS[to_role].display_name}에게 분배했습니다.\n"
                         f"전달 내용: {handoff['message']}"
@@ -660,7 +673,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 "type": "progress_update",
                 "task_id": task_id,
                 "from_role": role,
-                "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                "reply_channel_id": reply_channel_for(role, item, task),
                 "message": build_progress_complete_message(role, item, task),
                 "guidance": ROLE_GUIDANCE[role],
             },
