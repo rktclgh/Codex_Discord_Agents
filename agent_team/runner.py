@@ -111,19 +111,19 @@ def codex_exec_enabled() -> bool:
 
 
 def codex_timeout_seconds() -> int:
-    raw = os.environ.get("AGENT_TEAM_CODEX_TIMEOUT_SECONDS", "600").strip()
+    raw = os.environ.get("AGENT_TEAM_CODEX_TIMEOUT_SECONDS", "0").strip()
     try:
-        return max(60, int(raw))
+        return max(0, int(raw))
     except ValueError:
-        return 600
+        return 0
 
 
 def codex_heartbeat_seconds() -> int:
-    raw = os.environ.get("AGENT_TEAM_HEARTBEAT_SECONDS", "15").strip()
+    raw = os.environ.get("AGENT_TEAM_HEARTBEAT_SECONDS", "0").strip()
     try:
-        return max(5, int(raw))
+        return max(0, int(raw))
     except ValueError:
-        return 15
+        return 0
 
 
 def codex_permission_mode() -> str:
@@ -172,6 +172,45 @@ def push_progress_update(store: TaskStore, role: str, item: Dict, task: Optional
             "message": message,
             "guidance": ROLE_GUIDANCE[role],
         },
+    )
+
+
+def parent_role_for(role: str) -> Optional[str]:
+    if role == "be-dev":
+        return "be-lead"
+    if role == "fe-dev":
+        return "fe-lead"
+    if role in {"be-lead", "fe-lead", "qa", "security"}:
+        return "pm"
+    return None
+
+
+def should_emit_channel_progress(role: str, item: Dict) -> bool:
+    if role == "pm":
+        return True
+    return False
+
+
+def maybe_report_upstream(store: TaskStore, role: str, task_id: Optional[str], reply: str) -> None:
+    parent_role = parent_role_for(role)
+    if not parent_role or not task_id:
+        return
+    store.push_inbox(
+        parent_role,
+        {
+            "type": "task_report",
+            "task_id": task_id,
+            "from_role": role,
+            "to_role": parent_role,
+            "message": reply,
+        },
+    )
+    store.append_event(
+        "task_report",
+        task_id,
+        reply,
+        from_role=role,
+        to_role=parent_role,
     )
 
 
@@ -309,13 +348,14 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
             prompt,
         ]
 
-    push_progress_update(
-        store,
-        role,
-        item,
-        task,
-        f"`{item.get('task_id', '-')}` {mode_label}를 시작했습니다.",
-    )
+    if should_emit_channel_progress(role, item):
+        push_progress_update(
+            store,
+            role,
+            item,
+            task,
+            f"`{item.get('task_id', '-')}` {mode_label}를 시작했습니다.",
+        )
     log(role, f"Codex {'resume' if session_id else 'exec'} 시작 | task={item.get('task_id', '-')} | permission={codex_permission_mode()}")
     try:
         process = subprocess.Popen(
@@ -335,7 +375,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
     max_runtime = codex_timeout_seconds()
     heartbeat = codex_heartbeat_seconds()
     started_at = time.time()
-    next_heartbeat_at = started_at + heartbeat
+    next_heartbeat_at = started_at + heartbeat if heartbeat > 0 else None
 
     while True:
         if process.poll() is not None:
@@ -371,7 +411,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
 
         now = time.time()
         elapsed = int(now - started_at)
-        if now >= next_heartbeat_at:
+        if next_heartbeat_at is not None and now >= next_heartbeat_at:
             push_progress_update(
                 store,
                 role,
@@ -381,7 +421,7 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
             )
             next_heartbeat_at = now + heartbeat
 
-        if elapsed >= max_runtime:
+        if max_runtime > 0 and elapsed >= max_runtime:
             process.kill()
             stdout_text, stderr_text = process.communicate()
             log(role, f"Codex {'resume' if session_id else 'exec'} 타임아웃 | task={item.get('task_id', '-')} | {max_runtime}s")
@@ -412,13 +452,14 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
         log(role, f"Codex {'resume' if session_id else 'exec'} 결과 없음")
         return None
 
-    push_progress_update(
-        store,
-        role,
-        item,
-        task,
-        f"`{item.get('task_id', '-')}` 결과 정리를 마쳤고 지금 보고 메시지를 전송합니다.",
-    )
+    if should_emit_channel_progress(role, item):
+        push_progress_update(
+            store,
+            role,
+            item,
+            task,
+            f"`{item.get('task_id', '-')}` 결과 정리를 마쳤고 지금 보고 메시지를 전송합니다.",
+        )
 
     return {
         "status": "ok",
@@ -529,6 +570,14 @@ def build_fallback_reply(role: str, item: Dict, task: Optional[Dict]) -> str:
             f"이제 제가 제 역할 기준으로 이어서 진행하겠습니다, 사장님."
         )
 
+    if item_type == "task_report":
+        sender_name = ROLE_SPECS.get(item.get("from_role", ""), ROLE_SPECS[role]).display_name if item.get("from_role") in ROLE_SPECS else item.get("from_role", "unknown")
+        return (
+            f"{sender_name}에서 `{task_id}` 결과 보고를 올렸습니다.\n"
+            f"보고 내용:\n{message}\n"
+            "이 보고를 바탕으로 제가 다음 조치나 상위 보고를 이어가겠습니다."
+        )
+
     if item_type == "role_chat":
         return role_chat_reply(role, item, task)
 
@@ -613,17 +662,18 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
             store.update_task(task_id, owner_role=role, status="in_progress")
             store.append_event("task_claimed", task_id, f"{role} claimed the task.", from_role=role)
 
-        store.push_outbox(
-            role,
-            {
-                "type": "progress_update",
-                "task_id": task_id,
-                "from_role": role,
-                "reply_channel_id": reply_channel_for(role, item, task),
-                "message": build_progress_start_message(role, item, task),
-                "guidance": ROLE_GUIDANCE[role],
-            },
-        )
+        if should_emit_channel_progress(role, item):
+            store.push_outbox(
+                role,
+                {
+                    "type": "progress_update",
+                    "task_id": task_id,
+                    "from_role": role,
+                    "reply_channel_id": reply_channel_for(role, item, task),
+                    "message": build_progress_start_message(role, item, task),
+                    "guidance": ROLE_GUIDANCE[role],
+                },
+            )
 
         reply_payload = build_role_reply(store, role, item, task)
         reply = reply_payload["reply"]
@@ -640,6 +690,9 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 "notify_owner": role == "pm" and bool(task_id),
             },
         )
+
+        if role != "pm":
+            maybe_report_upstream(store, role, task_id, reply)
 
         handoffs = list(reply_payload.get("handoffs", []))
         solo_reason = reply_payload.get("solo_reason")
@@ -667,17 +720,18 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 },
             )
 
-        store.push_outbox(
-            role,
-            {
-                "type": "progress_update",
-                "task_id": task_id,
-                "from_role": role,
-                "reply_channel_id": reply_channel_for(role, item, task),
-                "message": build_progress_complete_message(role, item, task),
-                "guidance": ROLE_GUIDANCE[role],
-            },
-        )
+        if should_emit_channel_progress(role, item):
+            store.push_outbox(
+                role,
+                {
+                    "type": "progress_update",
+                    "task_id": task_id,
+                    "from_role": role,
+                    "reply_channel_id": reply_channel_for(role, item, task),
+                    "message": build_progress_complete_message(role, item, task),
+                    "guidance": ROLE_GUIDANCE[role],
+                },
+            )
 
 
 def run(role: str, poll_interval: float) -> int:
