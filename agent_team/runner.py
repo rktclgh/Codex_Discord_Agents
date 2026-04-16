@@ -229,13 +229,37 @@ def should_send_summary(role: str, item: Dict, task: Optional[Dict], reply_paylo
         return True
 
     return False
-    store.append_event(
-        "task_report",
-        task_id,
-        reply,
-        from_role=role,
-        to_role=parent_role,
-    )
+
+
+def report_contract_instructions(role: str, item: Dict, task: Optional[Dict]) -> str:
+    if role == "pm" and task and task.get("quiet_final_channel"):
+        return (
+            "- This reply is the final executive report for the owner-facing communication channel.\n"
+            "- Do not start with a greeting.\n"
+            "- Do not wrap the answer in code fences.\n"
+            "- Use exactly these sections in Korean, in this order:\n"
+            "[요청]\n[결론]\n[역할별 보고]\n[리스크]\n[다음 액션]\n"
+            "- Keep each section concise and decision-oriented.\n"
+            "- Under [역할별 보고], summarize each contributing role in one bullet.\n"
+        )
+
+    if role in {"be-lead", "be-dev", "fe-lead", "fe-dev", "qa", "security"} and item.get("type") in {"task_handoff", "task_report"}:
+        return (
+            "- This reply is a structured working report for internal team coordination.\n"
+            "- Do not start with a greeting.\n"
+            "- Do not wrap the answer in code fences.\n"
+            "- Use exactly these sections in Korean, in this order:\n"
+            "[판단]\n[핵심 결과]\n[리스크]\n[다음 액션]\n"
+            "- Keep each section short and actionable.\n"
+        )
+
+    if role == "pm":
+        return (
+            "- As PM, prefer a triage/orchestration stance over doing all work yourself.\n"
+            "- When you reply to a new task, separate what you concluded from what you are delegating.\n"
+        )
+
+    return ""
 
 
 def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
@@ -283,6 +307,7 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "- Allowed Security targets: be-lead, fe-lead, pm.\n"
         "- Prefer delegation for broad analysis, code review, implementation, QA, security review, or multi-surface work.\n"
         "- Keep the normal Korean reply first. Put HANDOFF or SOLO blocks at the end only.\n"
+        f"{report_contract_instructions(role, item, task)}"
     )
 
 
@@ -683,7 +708,7 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
             continue
 
         if task_id and task:
-            store.update_task(task_id, owner_role=role, status="in_progress")
+            store.update_task(task_id, assigned_role=role, status="in_progress")
             store.append_event("task_claimed", task_id, f"{role} claimed the task.", from_role=role)
 
         if should_emit_channel_progress(role, item):

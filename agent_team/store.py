@@ -173,7 +173,7 @@ class TaskStore:
         task = {
             "task_id": task_id,
             "title": title,
-            "status": "open",
+            "status": "triaging",
             "owner_role": "pm",
             "assigned_role": "pm",
             "source": source,
@@ -237,6 +237,7 @@ class TaskStore:
             pending_reports.append(to_role)
         task = self.update_task(
             task_id,
+            status="delegated",
             assigned_role=to_role,
             handoff_from=from_role,
             handoff_to=to_role,
@@ -270,6 +271,7 @@ class TaskStore:
         )
         return self.update_task(
             task_id,
+            status="reports_collected",
             completed_reports=completed_reports,
             upstream_reports=upstream_reports[-20:],
         )

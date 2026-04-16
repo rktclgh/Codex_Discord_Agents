@@ -163,6 +163,7 @@ def processing_ack_message(role: str, task_id: str, is_new_task: bool = False) -
 
 
 CODE_FENCE_WRAPPER_PATTERN = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+LEADING_SALUTATION_PATTERN = re.compile(r"^\s*사장님[,，]?\s*", re.MULTILINE)
 
 
 def normalize_report_text(message_text: str) -> str:
@@ -172,17 +173,40 @@ def normalize_report_text(message_text: str) -> str:
         if not match:
             break
         text = (match.group(1) or "").strip()
+    text = LEADING_SALUTATION_PATTERN.sub("", text).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def normalize_section_spacing(text: str) -> str:
+    section_pattern = re.compile(r"^\[(요청|결론|역할별 보고|리스크|다음 액션|판단|핵심 결과)\]\s*$", re.MULTILINE)
+    text = section_pattern.sub(lambda m: f"\n{m.group(0)}", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
 def format_report_body(message_text: str, report_format: Optional[str], role_label: str, task_id: str) -> str:
-    normalized = normalize_report_text(message_text)
+    normalized = normalize_section_spacing(normalize_report_text(message_text))
     if report_format == "codeblock":
         title = f"[{role_label} 최종 보고]"
         ticket = f"티켓: {task_id}" if task_id and task_id != "-" else "티켓: -"
-        return f"```text\n{title}\n{ticket}\n\n{normalized}\n```"
+        return f"```\n{title}\n{ticket}\n\n{normalized}\n```"
     return normalized
+
+
+def compact_single_line(text: str, limit: int = 110) -> str:
+    compact = re.sub(r"\s+", " ", normalize_report_text(text)).strip()
+    if len(compact) > limit:
+        return compact[: limit - 3].rstrip() + "..."
+    return compact
+
+
+def router_feed_status(payload_type: str) -> str:
+    mapping = {
+        "progress_update": "진행",
+        "status_summary": "보고",
+    }
+    return mapping.get(payload_type, "업데이트")
 
 
 TASK_ID_PATTERN = re.compile(r"(#\d+|TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
@@ -328,6 +352,7 @@ def run_discord_bot() -> int:
             task_id: str,
             message_text: str,
             target_channel_id: Optional[int],
+            payload_type: str,
         ) -> None:
             router_channel_id = named_channels.get("router")
             if not router_channel_id:
@@ -340,17 +365,19 @@ def run_discord_bot() -> int:
                 return
 
             target_label = "unknown"
-            for role, channel_id in outgoing_role_channels.items():
-                if int(channel_id) == int(target_channel_id or 0):
-                    target_label = ROLE_SPECS[role].display_name
-                    break
+            if target_channel_id:
+                target_channel = await self.resolve_channel(int(target_channel_id))
+                if target_channel is not None:
+                    target_label = f"#{getattr(target_channel, 'name', 'unknown')}"
 
             header = f"**Router Feed** `{task_id}`" if task_id and task_id != "-" else "**Router Feed**"
+            summary = compact_single_line(message_text)
             body = (
                 f"{header}\n"
+                f"상태: {router_feed_status(payload_type)}\n"
                 f"역할: {ROLE_SPECS[source_role].display_name}\n"
-                f"전달 채널: {target_label}\n"
-                f"{message_text}"
+                f"채널: {target_label}\n"
+                f"요약: {summary}"
             )
             await router_channel.send(body)
 
@@ -645,6 +672,7 @@ def run_discord_bot() -> int:
                             task_id=task_id,
                             message_text=payload.get("message", ""),
                             target_channel_id=int(target_channel_id),
+                            payload_type=payload_type,
                         )
                         store.commit_stream_offset("outbox", role, end_offset)
                         print(f"Posted outbox update for {task_id} from {role}", flush=True)
