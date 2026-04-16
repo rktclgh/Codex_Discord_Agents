@@ -119,11 +119,11 @@ def codex_timeout_seconds() -> int:
 
 
 def codex_heartbeat_seconds() -> int:
-    raw = os.environ.get("AGENT_TEAM_HEARTBEAT_SECONDS", "0").strip()
+    raw = os.environ.get("AGENT_TEAM_HEARTBEAT_SECONDS", "60").strip()
     try:
         return max(0, int(raw))
     except ValueError:
-        return 0
+        return 60
 
 
 def codex_permission_mode() -> str:
@@ -186,9 +186,7 @@ def parent_role_for(role: str) -> Optional[str]:
 
 
 def should_emit_channel_progress(role: str, item: Dict) -> bool:
-    if role == "pm":
-        return True
-    return False
+    return True
 
 
 def maybe_report_upstream(store: TaskStore, role: str, task_id: Optional[str], reply: str) -> None:
