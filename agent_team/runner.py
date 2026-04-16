@@ -111,11 +111,11 @@ def codex_exec_enabled() -> bool:
 
 
 def codex_timeout_seconds() -> int:
-    raw = os.environ.get("AGENT_TEAM_CODEX_TIMEOUT_SECONDS", "120").strip()
+    raw = os.environ.get("AGENT_TEAM_CODEX_TIMEOUT_SECONDS", "600").strip()
     try:
-        return max(15, int(raw))
+        return max(60, int(raw))
     except ValueError:
-        return 120
+        return 600
 
 
 def codex_heartbeat_seconds() -> int:

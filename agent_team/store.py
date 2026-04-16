@@ -167,8 +167,8 @@ class TaskStore:
         thread_id: Optional[str] = None,
         requester_user_id: Optional[str] = None,
     ) -> Dict:
-        task_id = "TASK-" + time.strftime("%Y%m%d-%H%M%S")
-        task_id = f"{task_id}-{uuid.uuid4().hex[:4]}"
+        tasks = self.load_tasks()
+        task_id = self._next_ticket_id(tasks)
         task = {
             "task_id": task_id,
             "title": title,
@@ -187,7 +187,6 @@ class TaskStore:
             "requester_user_id": requester_user_id,
             "last_requester_user_id": requester_user_id,
         }
-        tasks = self.load_tasks()
         tasks[task_id] = task
         self.save_tasks(tasks)
         self.append_event("task_created", task_id, title, from_role="user", to_role="pm")
@@ -202,6 +201,16 @@ class TaskStore:
             },
         )
         return task
+
+    def _next_ticket_id(self, tasks: Dict[str, Dict]) -> str:
+        max_ticket = 0
+        for key in tasks.keys():
+            if isinstance(key, str) and key.startswith("#"):
+                try:
+                    max_ticket = max(max_ticket, int(key[1:]))
+                except ValueError:
+                    continue
+        return f"#{max_ticket + 1}"
 
     def set_task_requester(self, task_id: str, requester_user_id: Optional[str]) -> Dict:
         changes = {"last_requester_user_id": requester_user_id}

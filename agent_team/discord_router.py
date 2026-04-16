@@ -76,20 +76,20 @@ def format_help_message() -> str:
         "\n"
         "`!handoff <task_id> <from_role> <to_role> <message>`\n"
         "- 수동 handoff를 수행합니다.\n"
-        "- 예시: `!handoff TASK-20260416-123456-abcd pm qa 재현 시나리오 먼저 정리해 주세요`\n"
+        "- 예시: `!handoff #12 pm qa 재현 시나리오 먼저 정리해 주세요`\n"
         "\n"
         "`!stop <task_id>`\n"
         "- 현재 진행 중이거나 대기 중인 해당 task의 작업 중지를 요청합니다.\n"
-        "- 예시: `!stop TASK-20260416-123456-abcd`\n"
+        "- 예시: `!stop #12`\n"
         "\n"
         "`!scope <task_id> <path> [path...]`\n"
         "- 해당 task의 write scope를 등록합니다.\n"
-        "- 예시: `!scope TASK-20260416-123456-abcd agent_team/discord_router.py README.md`\n"
+        "- 예시: `!scope #12 agent_team/discord_router.py README.md`\n"
         "\n"
         "`!review-done <task_id> <commit_message>`\n"
         "- 리드가 검토 완료를 선언하고, 등록된 write scope만 현재 브랜치에 자동 커밋합니다.\n"
         "- 주로 `#백엔드`, `#프론트엔드` 채널에서 사용합니다.\n"
-        "- 예시: `!review-done TASK-20260416-123456-abcd [fix] Discord help 명령 개선`\n"
+        "- 예시: `!review-done #12 [fix] Discord help 명령 개선`\n"
         "\n"
         "**3. 채널별 자연어 대화**\n"
         "- `#라우터`: PM 진입점 + Router Feed 관찰용\n"
@@ -101,10 +101,10 @@ def format_help_message() -> str:
         "\n"
         "각 채널에서는 `!task` 없이 자연어로 바로 요청하셔도 됩니다.\n"
         "- 예시: `결제 콜백 세션 만료 문제를 작업 단위로 쪼개 주세요.`\n"
-        "- 예시: `TASK-20260416-123456-abcd 기준으로 재현 시나리오를 정리해 주세요.`\n"
+        "- 예시: `#12 기준으로 재현 시나리오를 정리해 주세요.`\n"
         "\n"
         "**4. 참고 규칙**\n"
-        "- 메시지에 `TASK-...`를 포함하면 기존 task 맥락을 이어서 대화합니다.\n"
+        "- 메시지에 `#번호`를 포함하면 기존 task 맥락을 이어서 대화합니다.\n"
         "- `[주의]`, `[차단]`, `[리스크]`로 시작하는 응답은 오너를 자동 멘션합니다.\n"
         "- `#라우터` 채널에는 다른 채널의 주요 업데이트가 `Router Feed`로 함께 올라옵니다."
     )
@@ -162,7 +162,7 @@ def processing_ack_message(role: str, task_id: str, is_new_task: bool = False) -
     )
 
 
-TASK_ID_PATTERN = re.compile(r"(TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
+TASK_ID_PATTERN = re.compile(r"(#\d+|TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
 ALERT_TAG_PATTERN = re.compile(r"^\[(주의|차단|리스크)\]")
 
 
