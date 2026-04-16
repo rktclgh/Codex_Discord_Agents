@@ -212,8 +212,8 @@ DB 없이도 작동할 수 있게 단순한 파일 저장 구조를 사용합니
 ### 1. 저장소 클론
 
 ```bash
-git clone https://github.com/rktclgh/Discord_Agents.git
-cd Discord_Agents
+git clone https://github.com/rktclgh/Codex_Discord_Agents.git
+cd Codex_Discord_Agents
 ```
 
 ### 2. 의존성 설치
@@ -229,7 +229,102 @@ cd Discord_Agents
 
 를 수행합니다.
 
-### 3. 환경 파일 생성
+### 3. Discord 봇 생성 및 서버 연결
+
+이 프로젝트는 Discord Bot Token과 채널 ID가 있어야 동작합니다. 아직 Discord 봇을 만들지 않았다면 아래 순서대로 진행하시면 됩니다.
+
+#### 3-1. Discord Developer Portal에서 앱 생성
+
+1. 브라우저에서 [Discord Developer Portal](https://discord.com/developers/applications) 로 이동합니다.
+2. `New Application` 버튼을 누릅니다.
+3. 앱 이름을 입력합니다.
+   - 예: `Codex Discord Agents`
+4. 앱을 생성합니다.
+
+여기까지 하면 아직 "앱"만 있는 상태이고, 실제 메시지를 읽고 쓰는 "봇"은 아직 없습니다.
+
+#### 3-2. Bot 생성
+
+1. 왼쪽 메뉴에서 `Bot` 으로 이동합니다.
+2. `Add Bot` 버튼을 눌러 봇을 생성합니다.
+3. 생성이 끝나면 같은 화면에서 Bot Token을 발급받을 수 있습니다.
+
+이 토큰은 사실상 봇 비밀번호이므로 절대 공개 저장소에 넣으면 안 됩니다.
+
+#### 3-3. Message Content Intent 켜기
+
+이 프로젝트는 채널에 입력한 자연어 메시지를 읽어야 하므로 `MESSAGE CONTENT INTENT`가 필요합니다.
+
+1. `Bot` 화면 아래쪽의 `Privileged Gateway Intents` 섹션으로 이동합니다.
+2. `MESSAGE CONTENT INTENT`를 활성화합니다.
+3. 저장합니다.
+
+이 설정이 꺼져 있으면 봇은 채널에 메시지가 왔다는 사실만 알고, 실제 본문을 읽지 못합니다.
+
+#### 3-4. 봇을 내 Discord 서버에 초대하기
+
+1. 왼쪽 메뉴에서 `OAuth2` -> `URL Generator` 로 이동합니다.
+2. `Scopes`에서 아래 두 개를 체크합니다.
+   - `bot`
+   - `applications.commands`
+3. `Bot Permissions`는 최소한 아래 정도를 체크합니다.
+   - `View Channels`
+   - `Send Messages`
+   - `Read Message History`
+4. 채널별 스레드를 쓸 계획이라면 아래도 같이 체크하는 것을 권장합니다.
+   - `Create Public Threads`
+   - `Send Messages in Threads`
+5. 생성된 초대 링크로 봇을 원하는 Discord 서버에 추가합니다.
+
+#### 3-5. Discord에서 개발자 모드 켜기
+
+채널 ID와 사용자 ID를 복사하려면 개발자 모드가 필요합니다.
+
+1. Discord 앱의 `사용자 설정`으로 이동합니다.
+2. `고급` 메뉴로 이동합니다.
+3. `개발자 모드`를 켭니다.
+
+#### 3-6. 채널 만들기
+
+권장 채널 구성은 아래와 같습니다.
+
+- `#라우터`
+- `#pm`
+- `#백엔드`
+- `#프론트엔드`
+- `#qa`
+- `#보안`
+
+원하는 이름으로 만들어도 되지만, README와 기본 예시는 위 이름을 기준으로 설명합니다.
+
+#### 3-7. 채널 ID 복사
+
+각 채널을 우클릭한 뒤 `ID 복사`를 누르면 채널 ID를 얻을 수 있습니다.
+
+필요한 채널 ID:
+
+- `DISCORD_ROUTER_CHANNEL_ID`
+- `DISCORD_PM_CHANNEL_ID`
+- `DISCORD_BACKEND_CHANNEL_ID`
+- `DISCORD_FRONTEND_CHANNEL_ID`
+- `DISCORD_QA_CHANNEL_ID`
+- `DISCORD_SECURITY_CHANNEL_ID`
+
+#### 3-8. 오너 사용자 ID 복사
+
+리스크 발생 시 특정 계정을 멘션하고 싶다면, Discord에서 본인 프로필을 우클릭해서 `ID 복사`를 하면 됩니다.
+
+이 값은 `DISCORD_OWNER_USER_ID`에 넣습니다.
+
+#### 3-9. Bot Token 복사
+
+`Developer Portal -> Bot` 화면으로 돌아가서 토큰을 복사합니다.
+
+이 값은 `DISCORD_BOT_TOKEN`에 넣습니다.
+
+토큰이 외부에 노출되었다면 즉시 `Reset Token`으로 재발급하고, `.env`도 새 값으로 교체해야 합니다.
+
+### 4. 환경 파일 생성
 
 ```bash
 cp .agent_team.env.example .agent_team.env
@@ -299,6 +394,7 @@ AGENT_TEAM_CODEX_PERMISSION_MODE=danger-full-access
 `DISCORD_OWNER_USER_ID`
 
 - `[주의]`, `[차단]`, `[리스크]` 메시지가 발생했을 때 자동 멘션할 Discord 사용자 ID입니다.
+- Discord에서 본인 프로필 우클릭 -> `ID 복사`로 가져올 수 있습니다.
 
 `AGENT_TEAM_USE_CODEX_EXEC`
 
@@ -362,6 +458,8 @@ AGENT_TEAM_CODEX_PERMISSION_MODE=read-only
 - `#frontend`: 프론트엔드 리드/개발 관련
 - `#qa`: QA 관련
 - `#security`: 보안 관련
+
+위 권장 이름과 실제 `.env`의 채널 ID 매핑만 맞으면, 채널 이름을 다르게 써도 동작합니다.
 
 ## 실행 방법
 
