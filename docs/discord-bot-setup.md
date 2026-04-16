@@ -80,10 +80,21 @@ cp .agent_team.env.example .agent_team.env
 - `DISCORD_QA_CHANNEL_ID`
 - `DISCORD_SECURITY_CHANNEL_ID`
 - `DISCORD_OWNER_USER_ID`
+- `AGENT_TEAM_WORKSPACE_ROOT`
 
 채널 ID는 각 채널 우클릭 -> `ID 복사`로 가져옵니다.
 
 오너 사용자 ID도 본인 프로필 우클릭 -> `ID 복사`로 가져옵니다.
+
+`AGENT_TEAM_WORKSPACE_ROOT`에는 실제로 작업할 프로젝트 루트 경로를 넣습니다.
+
+예:
+
+```env
+AGENT_TEAM_WORKSPACE_ROOT=/Users/your-name/Desktop/MyRealProject
+```
+
+이 값을 설정해야 각 역할 에이전트가 해당 프로젝트의 `AGENTS.md`, 코드, 스크립트, git 상태를 기준으로 움직입니다.
 
 선택값:
 - `DISCORD_CHANNEL_ID`: fallback 용 기본 PM 채널
@@ -126,6 +137,8 @@ cp .agent_team.env.example .agent_team.env
 - `#qa`: 일반 메시지가 `QA`에게 들어갑니다.
 - `#security`: 일반 메시지가 `Security`에게 들어갑니다.
 
+자연어 요청을 보내면 먼저 "요청 확인 / 처리 중" 메시지가 올라오고, 처리 완료 후 최종 응답이 이어서 올라옵니다.
+
 ## 8. 지원 명령어
 ```text
 !task <title>
@@ -148,6 +161,7 @@ cp .agent_team.env.example .agent_team.env
 - 각 역할의 outbox 메시지는 매핑된 Discord 채널로 다시 전송됩니다.
 - `#router` 채널은 다른 채널에서 올라온 역할 업데이트도 `Router Feed` 형태로 함께 받아서, 교차 역할 협업 상황을 한 곳에서 볼 수 있습니다.
 - 역할 응답이 `[주의]`, `[차단]`, `[리스크]`로 시작하면, 설정된 오너 계정을 원래 채널과 `Router Feed` 양쪽에서 멘션합니다.
+- PM이 최종 응답을 보낼 때는 오너 멘션을 함께 붙일 수 있습니다.
 - 공용 채널도 지원합니다.
   - `backend` 채널: 기본적으로 `BE Lead`가 사용자 메시지를 받고, `BE Lead`와 `BE Dev`가 모두 이 채널로 응답할 수 있습니다.
   - `frontend` 채널: 기본적으로 `FE Lead`가 사용자 메시지를 받고, `FE Lead`와 `FE Dev`가 모두 이 채널로 응답할 수 있습니다.

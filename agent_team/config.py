@@ -33,6 +33,18 @@ def runtime_dir() -> Path:
     return Path(override).expanduser().resolve() if override else DEFAULT_RUNTIME_DIR
 
 
+def workspace_root() -> Path:
+    override = os.environ.get("AGENT_TEAM_WORKSPACE_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    parent = ROOT_DIR.parent
+    if (parent / "AGENTS.md").exists():
+        return parent.resolve()
+
+    return ROOT_DIR
+
+
 def runtime_paths() -> Dict[str, Path]:
     base = runtime_dir()
     return {

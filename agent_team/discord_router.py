@@ -142,6 +142,21 @@ def format_health_message(store: TaskStore, incoming_channel_roles: dict[int, st
     return "\n".join(lines)
 
 
+def processing_ack_message(role: str, task_id: str, is_new_task: bool = False) -> str:
+    role_name = ROLE_SPECS[role].display_name
+    if is_new_task:
+        return (
+            f"사장님, 요청 확인했습니다. `{task_id}` 로 등록했고 지금 처리 중입니다.\n"
+            f"담당 역할: {role_name}\n"
+            "잠시만 기다려 주시면 결과를 정리해서 바로 올리겠습니다."
+        )
+    return (
+        f"사장님, 요청 확인했습니다. `{task_id}` 기준으로 지금 처리 중입니다.\n"
+        f"담당 역할: {role_name}\n"
+        "잠시만 기다려 주시면 결과를 정리해서 바로 올리겠습니다."
+    )
+
+
 TASK_ID_PATTERN = re.compile(r"(TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
 ALERT_TAG_PATTERN = re.compile(r"^\[(주의|차단|리스크)\]")
 
@@ -171,6 +186,12 @@ def mention_for_task(task: Optional[dict], payload: dict) -> Optional[str]:
     if candidate:
         return f"<@{candidate}>"
     return None
+
+
+def completion_mention_for_task(task: Optional[dict], payload: dict) -> Optional[str]:
+    if not payload.get("notify_owner"):
+        return None
+    return mention_for_task(task, payload)
 
 
 def run_local_repl() -> int:
@@ -347,12 +368,13 @@ def run_discord_bot() -> int:
                 task_id = extract_task_id(content, store)
 
                 if channel_role == "pm" and task_id is None:
-                    store.create_task(
+                    task = store.create_task(
                         content,
                         source="discord-chat",
                         thread_id=str(message.channel.id),
                         requester_user_id=str(message.author.id),
                     )
+                    await message.reply(processing_ack_message("pm", task["task_id"], is_new_task=True))
                     return
 
                 if task_id:
@@ -370,6 +392,7 @@ def run_discord_bot() -> int:
                         "requester_user_id": str(message.author.id),
                     },
                 )
+                await message.reply(processing_ack_message(channel_role, task_id or "-", is_new_task=False))
                 return
 
             if not content.startswith("!"):
@@ -546,7 +569,11 @@ def run_discord_bot() -> int:
                     if task_id and task_id != "-":
                         header = f"{header} `{task_id}`"
                     task = store.get_task(task_id) if task_id and task_id != "-" else None
-                    mention_text = mention_for_task(task, payload) if is_alert_message(payload.get("message", "")) else None
+                    mention_text = None
+                    if is_alert_message(payload.get("message", "")):
+                        mention_text = mention_for_task(task, payload)
+                    if mention_text is None:
+                        mention_text = completion_mention_for_task(task, payload)
                     body = f"{header}\n{payload.get('message', '')}"
                     if mention_text:
                         body = f"{mention_text}\n{body}"

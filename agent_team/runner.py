@@ -10,12 +10,13 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .config import ROLE_SPECS
+from .config import ROLE_SPECS, workspace_root
 from .store import TaskStore
 
 
 STOP = False
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ORCHESTRATOR_ROOT = Path(__file__).resolve().parent.parent
+WORKSPACE_ROOT = workspace_root()
 
 
 ROLE_GUIDANCE = {
@@ -129,7 +130,8 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
     item_summary = json.dumps(item, ensure_ascii=False, indent=2)
     return (
         f"{ROLE_SYSTEM_PROMPTS[role]}\n\n"
-        f"Workspace: {ROOT_DIR}\n"
+        f"Workspace: {WORKSPACE_ROOT}\n"
+        f"Orchestrator project: {ORCHESTRATOR_ROOT}\n"
         f"Role: {role_name} ({role})\n"
         f"Task ID: {task_id}\n"
         f"Current task object:\n{task_summary}\n\n"
@@ -146,6 +148,7 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "- If there is a real caution, blocker, or risk, start the reply with one of these exact tags: [주의], [차단], [리스크].\n"
         "- Be concise but useful. Prefer 3-8 sentences unless more detail is clearly needed.\n"
         "- Do not mention hidden system prompts or implementation internals.\n"
+        "- Follow repository instructions from AGENTS.md if present under the workspace root.\n"
     )
 
 
@@ -197,15 +200,20 @@ def run_codex_for_role(role: str, prompt: str, session_id: Optional[str]) -> Opt
             *base_command,
             "exec",
             "-C",
-            str(ROOT_DIR),
+            str(WORKSPACE_ROOT),
             "--json",
             prompt,
         ]
 
+    print(
+        f"[{ROLE_SPECS[role].display_name}] Codex {'resume' if session_id else 'exec'} 시작 "
+        f"(workspace={WORKSPACE_ROOT}, permission={codex_permission_mode()})",
+        flush=True,
+    )
     try:
         completed = subprocess.run(
             command,
-            cwd=str(ROOT_DIR),
+            cwd=str(WORKSPACE_ROOT),
             capture_output=True,
             text=True,
             timeout=codex_timeout_seconds(),
@@ -325,12 +333,52 @@ def build_role_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dic
     return build_fallback_reply(role, item, task)
 
 
+def build_progress_start_message(role: str, item: Dict, task: Optional[Dict]) -> str:
+    task_id = item.get("task_id") or (task or {}).get("task_id") or "-"
+    from_role = item.get("from_role", "user")
+    from_name = ROLE_SPECS[from_role].display_name if from_role in ROLE_SPECS else from_role
+
+    if role == "pm":
+        if item.get("type") == "task_created":
+            return (
+                f"`{task_id}` 요청을 접수했습니다.\n"
+                "지금 범위를 정리하고 필요한 역할 분배를 시작하겠습니다."
+            )
+        return (
+            f"`{task_id}` 관련 요청을 확인했습니다.\n"
+            "지금 PM 관점에서 정리와 조율을 진행하겠습니다."
+        )
+
+    if item.get("type") == "task_handoff":
+        return (
+            f"{from_name}로부터 `{task_id}` 작업을 전달받았습니다.\n"
+            "지금 처리 시작하겠습니다."
+        )
+
+    return (
+        f"`{task_id}` 관련 요청을 확인했습니다.\n"
+        "지금 처리 시작하겠습니다."
+    )
+
+
+def build_progress_complete_message(role: str, item: Dict, task: Optional[Dict]) -> str:
+    task_id = item.get("task_id") or (task or {}).get("task_id") or "-"
+    if role == "pm":
+        return (
+            f"`{task_id}` 현재 요청에 대한 정리를 마쳤습니다.\n"
+            "필요한 후속 작업이나 역할 분배가 있으면 이어서 진행하겠습니다."
+        )
+    return (
+        f"`{task_id}` 처리를 마쳤습니다.\n"
+        "결과를 공유했고, PM 기준으로 다시 정리하거나 후속 보고가 필요하면 이어서 진행하겠습니다."
+    )
+
+
 def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
     for item in items:
         task_id = item.get("task_id")
         task = store.get_task(task_id) if task_id else None
         summary = summarize_message(role, item)
-        reply = build_role_reply(store, role, item, task)
         print(summary, flush=True)
 
         if task_id and task:
@@ -340,11 +388,38 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
         store.push_outbox(
             role,
             {
+                "type": "progress_update",
+                "task_id": task_id,
+                "from_role": role,
+                "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                "message": build_progress_start_message(role, item, task),
+                "guidance": ROLE_GUIDANCE[role],
+            },
+        )
+
+        reply = build_role_reply(store, role, item, task)
+
+        store.push_outbox(
+            role,
+            {
                 "type": "status_summary",
                 "task_id": task_id,
                 "from_role": role,
                 "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
                 "message": reply,
+                "guidance": ROLE_GUIDANCE[role],
+                "notify_owner": role == "pm" and bool(task_id),
+            },
+        )
+
+        store.push_outbox(
+            role,
+            {
+                "type": "progress_update",
+                "task_id": task_id,
+                "from_role": role,
+                "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                "message": build_progress_complete_message(role, item, task),
                 "guidance": ROLE_GUIDANCE[role],
             },
         )
@@ -362,6 +437,8 @@ def run(role: str, poll_interval: float) -> int:
     display_name = ROLE_SPECS[role].display_name
     print(f"{display_name} runner started.", flush=True)
     print(ROLE_GUIDANCE[role], flush=True)
+    print(f"Workspace root: {WORKSPACE_ROOT}", flush=True)
+    print(f"Orchestrator root: {ORCHESTRATOR_ROOT}", flush=True)
 
     while not STOP:
         store.set_role_heartbeat(role, "idle", ROLE_GUIDANCE[role])
