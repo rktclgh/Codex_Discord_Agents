@@ -194,14 +194,19 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "- Do not report 'blocked' on infrastructure checks until you have actually attempted the repo-provided access path.\n"
         "- If you are PM and the request requires codebase analysis, implementation, testing, or security review, do not keep the entire task to yourself. Delegate specialized work.\n"
         "- If you are BE Lead or FE Lead and implementation work exists, delegate bounded implementation packets to your developer role instead of only describing the work.\n"
+        "- For PM and lead roles, if this is a real task request, you must make an explicit orchestration decision.\n"
+        "- Your orchestration decision must be expressed as either one or more HANDOFF blocks, or exactly one SOLO block explaining why you will keep the work yourself.\n"
         "- When you want to delegate work, append one or more exact handoff blocks after the user-facing reply using this format:\n"
         "[[HANDOFF to=be-lead]]\n작업 지시 내용\n[[/HANDOFF]]\n"
+        "- If you intentionally keep the work to yourself, append exactly one SOLO block after the user-facing reply using this format:\n"
+        "[[SOLO]]단독 처리 이유[[/SOLO]]\n"
         "- Allowed PM targets: be-lead, fe-lead, qa, security.\n"
         "- Allowed BE Lead targets: be-dev, qa, security, pm.\n"
         "- Allowed FE Lead targets: fe-dev, qa, security, pm.\n"
         "- Allowed QA targets: be-lead, fe-lead, pm.\n"
         "- Allowed Security targets: be-lead, fe-lead, pm.\n"
-        "- Keep the normal Korean reply first. Put handoff blocks at the end only when real delegation is needed.\n"
+        "- Prefer delegation for broad analysis, code review, implementation, QA, security review, or multi-surface work.\n"
+        "- Keep the normal Korean reply first. Put HANDOFF or SOLO blocks at the end only.\n"
     )
 
 
@@ -241,6 +246,7 @@ HANDOFF_PATTERN = re.compile(
     r"\[\[HANDOFF\s+to=(?P<role>[a-z-]+)\]\](?P<body>.*?)\[\[/HANDOFF\]\]",
     re.DOTALL,
 )
+SOLO_PATTERN = re.compile(r"\[\[SOLO\]\](?P<body>.*?)\[\[/SOLO\]\]", re.DOTALL)
 
 
 def parse_handoffs(reply: str) -> List[Dict[str, str]]:
@@ -256,36 +262,16 @@ def parse_handoffs(reply: str) -> List[Dict[str, str]]:
 
 def strip_handoffs(reply: str) -> str:
     cleaned = HANDOFF_PATTERN.sub("", reply or "")
+    cleaned = SOLO_PATTERN.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
-
-def default_pm_handoffs(item: Dict, task: Optional[Dict]) -> List[Dict[str, str]]:
-    if not task:
-        return []
-    message = ((item.get("message") or "") + " " + (task.get("title") or "")).lower()
-    analysis_keywords = ["코드베이스", "분석", "리뷰", "점검", "헬스체크", "로그", "취합", "원인", "문제"]
-    if not any(keyword in message for keyword in analysis_keywords):
-        return []
-    task_id = task.get("task_id", "-")
-    return [
-        {
-            "to_role": "be-lead",
-            "message": f"{task_id} 기준으로 백엔드 코드/서버 관점 분석을 진행하고 핵심 이슈와 후속 작업을 정리해 주세요.",
-        },
-        {
-            "to_role": "fe-lead",
-            "message": f"{task_id} 기준으로 프론트엔드 영향 범위와 사용자 흐름 리스크를 분석해 주세요.",
-        },
-        {
-            "to_role": "qa",
-            "message": f"{task_id} 기준으로 재현 시나리오, 회귀 포인트, 검증 관점을 정리해 주세요.",
-        },
-        {
-            "to_role": "security",
-            "message": f"{task_id} 기준으로 보안 리스크나 공격 가능성이 있는 지점을 점검해 주세요.",
-        },
-    ]
+def extract_solo_reason(reply: str) -> Optional[str]:
+    match = SOLO_PATTERN.search(reply or "")
+    if not match:
+        return None
+    body = (match.group("body") or "").strip()
+    return body or None
 
 
 def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[Dict], prompt: str, session_id: Optional[str]) -> Optional[Dict]:
@@ -462,10 +448,12 @@ def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Di
 
     raw_reply = str(result["reply"]).strip()
     handoffs = parse_handoffs(raw_reply)
+    solo_reason = extract_solo_reason(raw_reply)
     return {
         "status": result.get("status", "ok"),
         "reply": strip_handoffs(raw_reply),
         "handoffs": handoffs,
+        "solo_reason": solo_reason,
     }
 
 
@@ -542,6 +530,7 @@ def build_role_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dic
         "status": "fallback",
         "reply": build_fallback_reply(role, item, task),
         "handoffs": [],
+        "solo_reason": None,
     }
 
 
@@ -640,8 +629,9 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
         )
 
         handoffs = list(reply_payload.get("handoffs", []))
-        if role == "pm" and task_id and not handoffs:
-            handoffs = default_pm_handoffs(item, task)
+        solo_reason = reply_payload.get("solo_reason")
+        if solo_reason:
+            log(role, f"단독 처리 판단 | task={task_id} | {solo_reason}")
 
         for handoff in handoffs:
             to_role = handoff["to_role"]
