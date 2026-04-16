@@ -488,8 +488,13 @@ AGENT_TEAM_CODEX_PERMISSION_MODE=read-only
 이 스크립트는:
 
 - `agent-team` tmux 세션이 없으면 먼저 띄우고
-- `caffeinate -dimsu`를 백그라운드로 실행해서
-- macOS 잠자기를 막습니다
+- `sudo pmset -a disablesleep 1` 로 시스템 잠자기를 차단하고
+- 즉시 `display sleep` 을 걸어 화면을 꺼줍니다
+
+중요:
+- 이 방식은 "잠자기 버튼을 눌러도 시스템은 최대한 유지하고 화면만 꺼지게" 하는 방향으로 맞춘 설정입니다.
+- 다만 **맥북 덮개를 닫는 것**은 별도 하드웨어/전원 정책 영향을 받기 때문에 완전히 같은 방식으로 막히지 않을 수 있습니다.
+- 즉 가장 안정적인 운영은 "맥북을 열어둔 상태에서 화면만 꺼두고 계속 돌리는 용도"입니다.
 
 ### 잠자기 방지 끄기
 
@@ -499,7 +504,7 @@ AGENT_TEAM_CODEX_PERMISSION_MODE=read-only
 ./scripts/agent_team_awake_off.sh
 ```
 
-이 명령은 `caffeinate`만 끄고, tmux 팀 세션은 그대로 둡니다.
+이 명령은 `pmset disablesleep` 설정만 원래대로 되돌리고, tmux 팀 세션은 그대로 둡니다.
 
 ### 현재 상태 보기
 

@@ -7,3 +7,4 @@ __pycache__/
 *.pem
 connect.sh
 start-tunnel.sh
+gui/

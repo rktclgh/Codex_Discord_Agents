@@ -122,6 +122,7 @@ AGENT_TEAM_WORKSPACE_ROOT=/Users/your-name/Desktop/MyRealProject
 ./scripts/agent_team_awake_status.sh
 ```
 
+
 ## 7. 첫 테스트
 
 `#pm`에서 아래처럼 테스트할 수 있습니다.
