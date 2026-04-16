@@ -300,7 +300,6 @@ def run_discord_bot() -> int:
             task_id: str,
             message_text: str,
             target_channel_id: Optional[int],
-            mention_text: Optional[str] = None,
         ) -> None:
             router_channel_id = named_channels.get("router")
             if not router_channel_id:
@@ -325,8 +324,6 @@ def run_discord_bot() -> int:
                 f"전달 채널: {target_label}\n"
                 f"{message_text}"
             )
-            if mention_text:
-                body = f"{mention_text}\n{body}"
             await router_channel.send(body)
 
         async def resolve_channel(self, channel_id: int):
@@ -588,7 +585,6 @@ def run_discord_bot() -> int:
                             task_id=task_id,
                             message_text=payload.get("message", ""),
                             target_channel_id=int(target_channel_id),
-                            mention_text=mention_text,
                         )
                         store.commit_stream_offset("outbox", role, end_offset)
                         print(f"Posted outbox update for {task_id} from {role}", flush=True)
