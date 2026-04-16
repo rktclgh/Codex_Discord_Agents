@@ -565,7 +565,11 @@ def run_discord_bot() -> int:
                     if channel is None:
                         continue
                     task_id = payload.get("task_id", "-")
-                    header = f"**{ROLE_SPECS[role].display_name}**"
+                    payload_type = payload.get("type", "")
+                    header_label = ROLE_SPECS[role].display_name
+                    if payload_type == "progress_update":
+                        header_label = f"{header_label} 진행상황"
+                    header = f"**{header_label}**"
                     if task_id and task_id != "-":
                         header = f"{header} `{task_id}`"
                     task = store.get_task(task_id) if task_id and task_id != "-" else None

@@ -105,6 +105,14 @@ def codex_timeout_seconds() -> int:
         return 120
 
 
+def codex_heartbeat_seconds() -> int:
+    raw = os.environ.get("AGENT_TEAM_HEARTBEAT_SECONDS", "15").strip()
+    try:
+        return max(5, int(raw))
+    except ValueError:
+        return 15
+
+
 def codex_permission_mode() -> str:
     raw = os.environ.get("AGENT_TEAM_CODEX_PERMISSION_MODE", "danger-full-access").strip().lower()
     if raw in {"danger-full-access", "workspace-write", "read-only"}:
@@ -121,6 +129,24 @@ def codex_base_command() -> List[str]:
         "-s",
         mode,
     ]
+
+
+def reply_channel_for(item: Dict, task: Optional[Dict]) -> Optional[str]:
+    return item.get("reply_channel_id") or (task or {}).get("thread_id")
+
+
+def push_progress_update(store: TaskStore, role: str, item: Dict, task: Optional[Dict], message: str) -> None:
+    store.push_outbox(
+        role,
+        {
+            "type": "progress_update",
+            "task_id": item.get("task_id"),
+            "from_role": role,
+            "reply_channel_id": reply_channel_for(item, task),
+            "message": message,
+            "guidance": ROLE_GUIDANCE[role],
+        },
+    )
 
 
 def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
@@ -188,8 +214,9 @@ def extract_codex_session_id(stdout: str) -> Optional[str]:
     return None
 
 
-def run_codex_for_role(role: str, prompt: str, session_id: Optional[str]) -> Optional[Dict]:
+def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[Dict], prompt: str, session_id: Optional[str]) -> Optional[Dict]:
     base_command = codex_base_command()
+    mode_label = "기존 세션 이어서 처리" if session_id else "새 세션으로 처리"
     if session_id:
         command = [
             *base_command,
@@ -209,34 +236,90 @@ def run_codex_for_role(role: str, prompt: str, session_id: Optional[str]) -> Opt
             prompt,
         ]
 
+    push_progress_update(
+        store,
+        role,
+        item,
+        task,
+        f"`{item.get('task_id', '-')}` {mode_label}를 시작했습니다.",
+    )
     print(
         f"[{ROLE_SPECS[role].display_name}] Codex {'resume' if session_id else 'exec'} 시작 "
         f"(workspace={WORKSPACE_ROOT}, permission={codex_permission_mode()})",
         flush=True,
     )
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=str(WORKSPACE_ROOT),
-            capture_output=True,
             text=True,
-            timeout=codex_timeout_seconds(),
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
     except Exception as exc:
         print(f"Codex {'resume' if session_id else 'exec'} failed before completion for {role}: {type(exc).__name__}: {exc}", flush=True)
         return None
 
-    if completed.returncode != 0:
-        stderr_text = (completed.stderr or "").strip()
-        print(f"Codex {'resume' if session_id else 'exec'} returned {completed.returncode} for {role}: {stderr_text}", flush=True)
+    max_runtime = codex_timeout_seconds()
+    heartbeat = codex_heartbeat_seconds()
+    started_at = time.time()
+    next_heartbeat_at = started_at + heartbeat
+
+    while True:
+        if process.poll() is not None:
+            break
+
+        now = time.time()
+        elapsed = int(now - started_at)
+        if now >= next_heartbeat_at:
+            push_progress_update(
+                store,
+                role,
+                item,
+                task,
+                f"`{item.get('task_id', '-')}` 아직 처리 중입니다. 현재 {mode_label.lower()}이며 {elapsed}초 경과했습니다.",
+            )
+            next_heartbeat_at = now + heartbeat
+
+        if elapsed >= max_runtime:
+            process.kill()
+            stdout_text, stderr_text = process.communicate()
+            print(
+                f"Codex {'resume' if session_id else 'exec'} timed out after {max_runtime}s for {role}: {(stderr_text or '').strip()}",
+                flush=True,
+            )
+            push_progress_update(
+                store,
+                role,
+                item,
+                task,
+                f"[주의] `{item.get('task_id', '-')}` 작업이 {max_runtime}초를 넘겨 지연되고 있어 현재 세션을 중단했습니다.",
+            )
+            return None
+
+        time.sleep(1)
+
+    stdout_text, stderr_text = process.communicate()
+    completed_returncode = process.returncode
+
+    if completed_returncode != 0:
+        stderr_text = (stderr_text or "").strip()
+        print(f"Codex {'resume' if session_id else 'exec'} returned {completed_returncode} for {role}: {stderr_text}", flush=True)
         return None
 
-    reply = extract_codex_text(completed.stdout or "")
-    next_session_id = session_id or extract_codex_session_id(completed.stdout or "")
+    reply = extract_codex_text(stdout_text or "")
+    next_session_id = session_id or extract_codex_session_id(stdout_text or "")
     if not reply:
         print(f"Codex {'resume' if session_id else 'exec'} produced no agent message for {role}.", flush=True)
         return None
+
+    push_progress_update(
+        store,
+        role,
+        item,
+        task,
+        f"`{item.get('task_id', '-')}` 결과 정리를 마쳤고 지금 보고 메시지를 전송합니다.",
+    )
 
     return {
         "reply": reply,
@@ -250,12 +333,22 @@ def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Di
 
     prompt = build_codex_prompt(role, item, task)
     session_id = store.get_role_session(role)
-    result = run_codex_for_role(role, prompt, session_id)
+    result = run_codex_for_role(store, role, item, task, prompt, session_id)
     if result is None and session_id:
         print(f"Falling back to fresh Codex session for {role}.", flush=True)
-        result = run_codex_for_role(role, prompt, None)
+        push_progress_update(
+            store,
+            role,
+            item,
+            task,
+            f"[주의] `{item.get('task_id', '-')}` 기존 역할 세션 응답이 지연되어 새 세션으로 재시도합니다.",
+        )
+        result = run_codex_for_role(store, role, item, task, prompt, None)
     if result is None:
-        return None
+        return (
+            f"[주의] 사장님, `{item.get('task_id', '-')}` 작업은 자동 처리까지 시도했지만 아직 최종 결과를 확보하지 못했습니다.\n"
+            "현재 역할 세션 재시도까지 수행한 상태이고, 요청을 더 작게 나누거나 별도 후속 작업으로 분리하는 쪽이 안전합니다."
+        )
 
     next_session_id = result.get("session_id")
     if next_session_id and next_session_id != session_id:
@@ -369,12 +462,12 @@ def build_progress_complete_message(role: str, item: Dict, task: Optional[Dict])
     task_id = item.get("task_id") or (task or {}).get("task_id") or "-"
     if role == "pm":
         return (
-            f"`{task_id}` 현재 요청에 대한 정리를 마쳤습니다.\n"
+            f"`{task_id}` 최종 정리 결과를 방금 보고했습니다.\n"
             "필요한 후속 작업이나 역할 분배가 있으면 이어서 진행하겠습니다."
         )
     return (
-        f"`{task_id}` 처리를 마쳤습니다.\n"
-        "결과를 공유했고, PM 기준으로 다시 정리하거나 후속 보고가 필요하면 이어서 진행하겠습니다."
+        f"`{task_id}` 처리를 마쳤고 결과를 공유했습니다.\n"
+        "필요하면 PM 기준 후속 정리나 추가 보고로 이어가겠습니다."
     )
 
 
