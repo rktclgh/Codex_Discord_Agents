@@ -98,10 +98,12 @@ def format_help_message() -> str:
         "- `#프론트엔드`: 기본적으로 FE Lead가 받음\n"
         "- `#qa`: QA가 받음\n"
         "- `#보안`: Security가 받음\n"
+        "- `#리서치`: 최신 문서, 라이브러리, 외부 비교를 Research 역할이 받음\n"
         "\n"
         "각 채널에서는 `!task` 없이 자연어로 바로 요청하셔도 됩니다.\n"
         "- 예시: `결제 콜백 세션 만료 문제를 작업 단위로 쪼개 주세요.`\n"
         "- 예시: `#12 기준으로 재현 시나리오를 정리해 주세요.`\n"
+        "- 예시: `최신 React Router 변경사항 요약해 주세요.`\n"
         "\n"
         "**4. 참고 규칙**\n"
         "- 메시지에 `#번호`를 포함하면 기존 task 맥락을 이어서 대화합니다.\n"
@@ -120,6 +122,7 @@ def format_roles_message() -> str:
     lines.append("- BE Lead / FE Lead가 구현 범위를 분해하고 리뷰합니다.")
     lines.append("- QA는 장애 지점과 회귀 시나리오를 찾아 리드에게 전달합니다.")
     lines.append("- Security는 보안 리스크를 찾아 리드와 PM에게 공유합니다.")
+    lines.append("- Research는 최신 라이브러리, 공식 문서, 외부 비교 자료를 조사합니다.")
     return "\n".join(lines)
 
 

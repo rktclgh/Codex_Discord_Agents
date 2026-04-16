@@ -76,6 +76,7 @@ ROLES=(
   "fe-dev"
   "qa"
   "security"
+  "research"
 )
 
 for role in "${ROLES[@]}"; do
@@ -157,6 +158,10 @@ tmux send-keys -t "${SESSION_NAME}:review.0" "$(runner_command agent_team.runner
 tmux send-keys -t "${SESSION_NAME}:review.1" "$(runner_command agent_team.runner --role security)" C-m
 tmux select-pane -t "${SESSION_NAME}:review.0" -T "QA"
 tmux select-pane -t "${SESSION_NAME}:review.1" -T "Security"
+
+tmux new-window -t "${SESSION_NAME}" -n research -c "${ROOT_DIR}"
+send_role_banner "${SESSION_NAME}:research" "Research" "Web search / latest libraries / official docs"
+tmux send-keys -t "${SESSION_NAME}:research" "$(runner_command agent_team.runner --role research)" C-m
 
 tmux new-window -t "${SESSION_NAME}" -n logs -c "${ROOT_DIR}"
 tmux split-window -v -t "${SESSION_NAME}:logs" -c "${ROOT_DIR}"

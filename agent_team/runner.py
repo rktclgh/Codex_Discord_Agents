@@ -29,6 +29,7 @@ ROLE_GUIDANCE = {
     "fe-dev": "Implement bounded frontend packets and return work to FE Lead.",
     "qa": "Predict failures, use Playwright when useful, and send defect packets back to leads.",
     "security": "Review exploitability and hand backend/frontend issues to the right lead.",
+    "research": "Research latest libraries, docs, changelogs, and external references with web search.",
 }
 
 
@@ -40,6 +41,7 @@ ROLE_OPENERS = {
     "fe-dev": "사장님, 프론트 구현 관점에서 확인했습니다.",
     "qa": "사장님, 테스트 관점에서 확인했습니다.",
     "security": "사장님, 보안 관점에서 확인했습니다.",
+    "research": "사장님, 최신 자료 관점에서 확인했습니다.",
 }
 
 
@@ -79,6 +81,11 @@ ROLE_SYSTEM_PROMPTS = {
         "You are a 20+ year application security reviewer. Reply in Korean. "
         "Always use respectful honorific language. Address the user as '사장님'. "
         "Focus on exploitability, auth/authz, validation, secrets, exposure risk, and concrete remediation guidance."
+    ),
+    "research": (
+        "You are a technical research agent. Reply in Korean. "
+        "Always use respectful honorific language. Address the user as '사장님'. "
+        "Focus on up-to-date external information, latest libraries, changelogs, official docs, comparisons, and references."
     ),
 }
 
@@ -133,6 +140,10 @@ def codex_permission_mode() -> str:
     return "danger-full-access"
 
 
+def codex_search_enabled() -> bool:
+    return os.environ.get("AGENT_TEAM_CODEX_ENABLE_SEARCH", "1").strip().lower() not in {"0", "false", "no"}
+
+
 def codex_model() -> str:
     raw = os.environ.get("AGENT_TEAM_CODEX_MODEL", "gpt-5.4").strip()
     return raw or "gpt-5.4"
@@ -144,6 +155,7 @@ def codex_base_command() -> List[str]:
         "codex",
         "-a",
         "never",
+        *(["--search"] if codex_search_enabled() else []),
         "-m",
         codex_model(),
         "-s",
@@ -189,7 +201,7 @@ def parent_role_for(role: str) -> Optional[str]:
         return "be-lead"
     if role == "fe-dev":
         return "fe-lead"
-    if role in {"be-lead", "fe-lead", "qa", "security"}:
+    if role in {"be-lead", "fe-lead", "qa", "security", "research"}:
         return "pm"
     return None
 
@@ -307,11 +319,12 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "[[HANDOFF to=be-lead]]\n작업 지시 내용\n[[/HANDOFF]]\n"
         "- If you intentionally keep the work to yourself, append exactly one SOLO block after the user-facing reply using this format:\n"
         "[[SOLO]]단독 처리 이유[[/SOLO]]\n"
-        "- Allowed PM targets: be-lead, fe-lead, qa, security.\n"
+        "- Allowed PM targets: be-lead, fe-lead, qa, security, research.\n"
         "- Allowed BE Lead targets: be-dev, qa, security, pm.\n"
         "- Allowed FE Lead targets: fe-dev, qa, security, pm.\n"
         "- Allowed QA targets: be-lead, fe-lead, pm.\n"
         "- Allowed Security targets: be-lead, fe-lead, pm.\n"
+        "- Allowed Research targets: pm.\n"
         "- Prefer delegation for broad analysis, code review, implementation, QA, security review, or multi-surface work.\n"
         "- Keep the normal Korean reply first. Put HANDOFF or SOLO blocks at the end only.\n"
         f"{report_contract_instructions(role, item, task)}"
@@ -591,6 +604,7 @@ def role_chat_reply(role: str, item: Dict, task: Optional[Dict]) -> str:
         "fe-dev": "컴포넌트 구현, API 연동, 화면 반영 범위",
         "qa": "재현 경로, 회귀 포인트, 실패 시나리오",
         "security": "공격면, 권한, 입력 검증, 노출 위험",
+        "research": "최신 라이브러리, 공식 문서, 변경사항, 외부 비교 자료",
     }[role]
 
     if task_id and task:

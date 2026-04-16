@@ -25,6 +25,7 @@ ROLE_SPECS: Dict[str, RoleSpec] = {
     "fe-dev": RoleSpec("fe-dev", "FE Dev", "Frontend implementation worker"),
     "qa": RoleSpec("qa", "QA", "Failure prediction / Playwright / regression handoff"),
     "security": RoleSpec("security", "Security", "20+ year security review / exploitability handoff"),
+    "research": RoleSpec("research", "Research", "Web research / latest libraries / external references"),
 }
 
 
@@ -105,6 +106,7 @@ def discord_channel_map() -> Dict[str, Dict]:
     frontend_channel = parse_channel_id(os.environ.get("DISCORD_FRONTEND_CHANNEL_ID"))
     qa_channel = parse_channel_id(os.environ.get("DISCORD_QA_CHANNEL_ID"))
     security_channel = parse_channel_id(os.environ.get("DISCORD_SECURITY_CHANNEL_ID"))
+    research_channel = parse_channel_id(os.environ.get("DISCORD_RESEARCH_CHANNEL_ID"))
 
     if router_channel:
         incoming[router_channel] = "pm"
@@ -140,6 +142,11 @@ def discord_channel_map() -> Dict[str, Dict]:
         incoming[security_channel] = "security"
         outgoing["security"] = security_channel
         named["security"] = security_channel
+
+    if research_channel:
+        incoming[research_channel] = "research"
+        outgoing["research"] = research_channel
+        named["research"] = research_channel
 
     # Fine-grained per-role overrides win over shared channels.
     for role in ROLE_SPECS:
