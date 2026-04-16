@@ -15,6 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 HELP_TEXT = """Commands:
   !task <title>
   !handoff <task_id> <from_role> <to_role> <message>
+  !stop <task_id>
   !scope <task_id> <path> [path...]
   !review-done <task_id> <commit_message>
   !status [task_id]
@@ -76,6 +77,10 @@ def format_help_message() -> str:
         "`!handoff <task_id> <from_role> <to_role> <message>`\n"
         "- 수동 handoff를 수행합니다.\n"
         "- 예시: `!handoff TASK-20260416-123456-abcd pm qa 재현 시나리오 먼저 정리해 주세요`\n"
+        "\n"
+        "`!stop <task_id>`\n"
+        "- 현재 진행 중이거나 대기 중인 해당 task의 작업 중지를 요청합니다.\n"
+        "- 예시: `!stop TASK-20260416-123456-abcd`\n"
         "\n"
         "`!scope <task_id> <path> [path...]`\n"
         "- 해당 task의 write scope를 등록합니다.\n"
@@ -435,6 +440,22 @@ def run_discord_bot() -> int:
                     scope = [part for part in path_blob.split(" ") if part.strip()]
                     store.update_task(task_id, write_scope=scope)
                     await message.reply(f"`{task_id}` write scope를 업데이트했습니다.\n" + "\n".join(f"- `{path}`" for path in scope))
+                    return
+
+                if content.startswith("!stop "):
+                    parts = content.split(" ", 1)
+                    task_id = parts[1].strip() if len(parts) == 2 else ""
+                    task = store.get_task(task_id)
+                    if not task:
+                        await message.reply("Task not found.")
+                        return
+                    target_role = task.get("assigned_role") or task.get("owner_role") or "pm"
+                    store.request_stop(task_id, target_role, str(message.author.id))
+                    await message.reply(
+                        f"`{task_id}` 작업 중지를 요청했습니다.\n"
+                        f"대상 역할: `{target_role}`\n"
+                        "현재 실행 중이면 안전하게 중단하고, 아직 대기 중이면 처리 전에 건너뜁니다."
+                    )
                     return
 
                 if content.startswith("!review-done "):

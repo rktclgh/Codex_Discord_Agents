@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SESSION_NAME="${TMUX_AGENT_SESSION:-agent-team}"

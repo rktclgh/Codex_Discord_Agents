@@ -261,6 +261,73 @@ class TaskStore:
         }
         self.save_role_state(role_state)
 
+    def set_role_active_task(self, role: str, task_id: Optional[str], pid: Optional[int] = None) -> None:
+        role_state = self.load_role_state()
+        existing = role_state.get(role, {})
+        role_state[role] = {
+            **existing,
+            "active_task_id": task_id,
+            "active_pid": pid,
+            "updated_at": now_iso(),
+        }
+        self.save_role_state(role_state)
+
+    def clear_role_active_task(self, role: str) -> None:
+        role_state = self.load_role_state()
+        existing = role_state.get(role, {})
+        role_state[role] = {
+            **existing,
+            "active_task_id": None,
+            "active_pid": None,
+            "updated_at": now_iso(),
+        }
+        self.save_role_state(role_state)
+
+    def request_stop(self, task_id: str, role: str, requester_user_id: Optional[str] = None) -> Dict:
+        task = self.update_task(
+            task_id,
+            status="stop_requested",
+            stop_requested_for_role=role,
+            last_requester_user_id=requester_user_id or self.get_task(task_id).get("last_requester_user_id"),
+        )
+        self.append_event(
+            "task_stop_requested",
+            task_id,
+            f"Stop requested for {role}.",
+            requested_role=role,
+            requester_user_id=requester_user_id,
+        )
+        role_state = self.load_role_state()
+        existing = role_state.get(role, {})
+        role_state[role] = {
+            **existing,
+            "stop_requested_task_id": task_id,
+            "stop_requested_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        self.save_role_state(role_state)
+        return task
+
+    def is_stop_requested(self, role: str, task_id: Optional[str]) -> bool:
+        if not task_id:
+            return False
+        role_state = self.load_role_state()
+        state = role_state.get(role) or {}
+        return state.get("stop_requested_task_id") == task_id
+
+    def clear_stop_request(self, role: str, task_id: Optional[str] = None) -> None:
+        role_state = self.load_role_state()
+        existing = role_state.get(role, {})
+        if task_id and existing.get("stop_requested_task_id") not in {None, task_id}:
+            return
+        role_state[role] = {
+            **existing,
+            "stop_requested_task_id": None,
+            "stop_requested_at": None,
+            "updated_at": now_iso(),
+        }
+        self.save_role_state(role_state)
+
     def list_tasks(self) -> Iterable[Dict]:
         return self.load_tasks().values()
 

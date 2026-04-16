@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 SESSION_NAME="${TMUX_AGENT_SESSION:-agent-team}"
 
 if ! command -v tmux >/dev/null 2>&1; then

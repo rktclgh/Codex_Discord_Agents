@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
+import re
 
 from .config import ROLE_SPECS, workspace_root
 from .store import TaskStore
@@ -179,6 +180,16 @@ def build_codex_prompt(role: str, item: Dict, task: Optional[Dict]) -> str:
         "- For deployed server inspection, use ./connect.sh from the workspace root when available.\n"
         "- For DB inspection through SSH tunnel, use ./start-tunnel.sh from the workspace root when available.\n"
         "- Do not report 'blocked' on infrastructure checks until you have actually attempted the repo-provided access path.\n"
+        "- If you are PM and the request requires codebase analysis, implementation, testing, or security review, do not keep the entire task to yourself. Delegate specialized work.\n"
+        "- If you are BE Lead or FE Lead and implementation work exists, delegate bounded implementation packets to your developer role instead of only describing the work.\n"
+        "- When you want to delegate work, append one or more exact handoff blocks after the user-facing reply using this format:\n"
+        "[[HANDOFF to=be-lead]]\n작업 지시 내용\n[[/HANDOFF]]\n"
+        "- Allowed PM targets: be-lead, fe-lead, qa, security.\n"
+        "- Allowed BE Lead targets: be-dev, qa, security, pm.\n"
+        "- Allowed FE Lead targets: fe-dev, qa, security, pm.\n"
+        "- Allowed QA targets: be-lead, fe-lead, pm.\n"
+        "- Allowed Security targets: be-lead, fe-lead, pm.\n"
+        "- Keep the normal Korean reply first. Put handoff blocks at the end only when real delegation is needed.\n"
     )
 
 
@@ -212,6 +223,57 @@ def extract_codex_session_id(stdout: str) -> Optional[str]:
         if payload.get("type") == "thread.started" and payload.get("thread_id"):
             return str(payload["thread_id"]).strip()
     return None
+
+
+HANDOFF_PATTERN = re.compile(
+    r"\[\[HANDOFF\s+to=(?P<role>[a-z-]+)\]\](?P<body>.*?)\[\[/HANDOFF\]\]",
+    re.DOTALL,
+)
+
+
+def parse_handoffs(reply: str) -> List[Dict[str, str]]:
+    handoffs: List[Dict[str, str]] = []
+    for match in HANDOFF_PATTERN.finditer(reply or ""):
+        role = (match.group("role") or "").strip()
+        body = (match.group("body") or "").strip()
+        if not role or not body or role not in ROLE_SPECS:
+            continue
+        handoffs.append({"to_role": role, "message": body})
+    return handoffs
+
+
+def strip_handoffs(reply: str) -> str:
+    cleaned = HANDOFF_PATTERN.sub("", reply or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def default_pm_handoffs(item: Dict, task: Optional[Dict]) -> List[Dict[str, str]]:
+    if not task:
+        return []
+    message = ((item.get("message") or "") + " " + (task.get("title") or "")).lower()
+    analysis_keywords = ["코드베이스", "분석", "리뷰", "점검", "헬스체크", "로그", "취합", "원인", "문제"]
+    if not any(keyword in message for keyword in analysis_keywords):
+        return []
+    task_id = task.get("task_id", "-")
+    return [
+        {
+            "to_role": "be-lead",
+            "message": f"{task_id} 기준으로 백엔드 코드/서버 관점 분석을 진행하고 핵심 이슈와 후속 작업을 정리해 주세요.",
+        },
+        {
+            "to_role": "fe-lead",
+            "message": f"{task_id} 기준으로 프론트엔드 영향 범위와 사용자 흐름 리스크를 분석해 주세요.",
+        },
+        {
+            "to_role": "qa",
+            "message": f"{task_id} 기준으로 재현 시나리오, 회귀 포인트, 검증 관점을 정리해 주세요.",
+        },
+        {
+            "to_role": "security",
+            "message": f"{task_id} 기준으로 보안 리스크나 공격 가능성이 있는 지점을 점검해 주세요.",
+        },
+    ]
 
 
 def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[Dict], prompt: str, session_id: Optional[str]) -> Optional[Dict]:
@@ -260,6 +322,9 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
         print(f"Codex {'resume' if session_id else 'exec'} failed before completion for {role}: {type(exc).__name__}: {exc}", flush=True)
         return None
 
+    task_id = item.get("task_id")
+    store.set_role_active_task(role, task_id, process.pid)
+
     max_runtime = codex_timeout_seconds()
     heartbeat = codex_heartbeat_seconds()
     started_at = time.time()
@@ -268,6 +333,37 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
     while True:
         if process.poll() is not None:
             break
+
+        if task_id and store.is_stop_requested(role, task_id):
+            process.terminate()
+            try:
+                stdout_text, stderr_text = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout_text, stderr_text = process.communicate()
+            print(
+                f"Codex {'resume' if session_id else 'exec'} cancelled for {role} task {task_id}: {(stderr_text or '').strip()}",
+                flush=True,
+            )
+            store.clear_stop_request(role, task_id)
+            store.clear_role_active_task(role)
+            store.update_task(task_id, status="stopped")
+            store.append_event("task_stopped", task_id, f"{role} stopped the task on request.", from_role=role)
+            push_progress_update(
+                store,
+                role,
+                item,
+                task,
+                f"[주의] `{task_id}` 작업은 중지 요청을 받아 현재 단계에서 안전하게 멈췄습니다.",
+            )
+            return {
+                "status": "cancelled",
+                "reply": (
+                    f"사장님, `{task_id}` 작업은 중지 요청을 받아 멈췄습니다.\n"
+                    "추가로 다시 시작하시거나 더 작은 작업으로 나눠서 지시해 주시면 이어서 처리하겠습니다."
+                ),
+                "session_id": session_id,
+            }
 
         now = time.time()
         elapsed = int(now - started_at)
@@ -295,11 +391,13 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
                 task,
                 f"[주의] `{item.get('task_id', '-')}` 작업이 {max_runtime}초를 넘겨 지연되고 있어 현재 세션을 중단했습니다.",
             )
+            store.clear_role_active_task(role)
             return None
 
         time.sleep(1)
 
     stdout_text, stderr_text = process.communicate()
+    store.clear_role_active_task(role)
     completed_returncode = process.returncode
 
     if completed_returncode != 0:
@@ -322,12 +420,13 @@ def run_codex_for_role(store: TaskStore, role: str, item: Dict, task: Optional[D
     )
 
     return {
+        "status": "ok",
         "reply": reply,
         "session_id": next_session_id,
     }
 
 
-def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dict]) -> Optional[str]:
+def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dict]) -> Optional[Dict]:
     if not codex_exec_enabled():
         return None
 
@@ -345,17 +444,27 @@ def maybe_codex_reply(store: TaskStore, role: str, item: Dict, task: Optional[Di
         )
         result = run_codex_for_role(store, role, item, task, prompt, None)
     if result is None:
-        return (
-            f"[주의] 사장님, `{item.get('task_id', '-')}` 작업은 자동 처리까지 시도했지만 아직 최종 결과를 확보하지 못했습니다.\n"
-            "현재 역할 세션 재시도까지 수행한 상태이고, 요청을 더 작게 나누거나 별도 후속 작업으로 분리하는 쪽이 안전합니다."
-        )
+        return {
+            "status": "failed",
+            "reply": (
+                f"[주의] 사장님, `{item.get('task_id', '-')}` 작업은 자동 처리까지 시도했지만 아직 최종 결과를 확보하지 못했습니다.\n"
+                "현재 역할 세션 재시도까지 수행한 상태이고, 요청을 더 작게 나누거나 별도 후속 작업으로 분리하는 쪽이 안전합니다."
+            ),
+            "handoffs": [],
+        }
 
     next_session_id = result.get("session_id")
     if next_session_id and next_session_id != session_id:
         store.set_role_session(role, next_session_id)
         print(f"Stored Codex session for {role}: {next_session_id}", flush=True)
 
-    return str(result["reply"]).strip()
+    raw_reply = str(result["reply"]).strip()
+    handoffs = parse_handoffs(raw_reply)
+    return {
+        "status": result.get("status", "ok"),
+        "reply": strip_handoffs(raw_reply),
+        "handoffs": handoffs,
+    }
 
 
 def role_chat_reply(role: str, item: Dict, task: Optional[Dict]) -> str:
@@ -423,11 +532,15 @@ def build_fallback_reply(role: str, item: Dict, task: Optional[Dict]) -> str:
     return summarize_message(role, item)
 
 
-def build_role_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dict]) -> str:
+def build_role_reply(store: TaskStore, role: str, item: Dict, task: Optional[Dict]) -> Dict:
     codex_reply = maybe_codex_reply(store, role, item, task)
     if codex_reply:
         return codex_reply
-    return build_fallback_reply(role, item, task)
+    return {
+        "status": "fallback",
+        "reply": build_fallback_reply(role, item, task),
+        "handoffs": [],
+    }
 
 
 def build_progress_start_message(role: str, item: Dict, task: Optional[Dict]) -> str:
@@ -478,6 +591,20 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
         summary = summarize_message(role, item)
         print(summary, flush=True)
 
+        if task_id and task and task.get("status") in {"stop_requested", "stopped"}:
+            store.push_outbox(
+                role,
+                {
+                    "type": "progress_update",
+                    "task_id": task_id,
+                    "from_role": role,
+                    "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                    "message": f"`{task_id}` 작업은 이미 중지 요청 상태라 처리하지 않고 건너뜁니다.",
+                    "guidance": ROLE_GUIDANCE[role],
+                },
+            )
+            continue
+
         if task_id and task:
             store.update_task(task_id, owner_role=role, status="in_progress")
             store.append_event("task_claimed", task_id, f"{role} claimed the task.", from_role=role)
@@ -494,7 +621,8 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
             },
         )
 
-        reply = build_role_reply(store, role, item, task)
+        reply_payload = build_role_reply(store, role, item, task)
+        reply = reply_payload["reply"]
 
         store.push_outbox(
             role,
@@ -508,6 +636,30 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                 "notify_owner": role == "pm" and bool(task_id),
             },
         )
+
+        handoffs = list(reply_payload.get("handoffs", []))
+        if role == "pm" and task_id and not handoffs:
+            handoffs = default_pm_handoffs(item, task)
+
+        for handoff in handoffs:
+            to_role = handoff["to_role"]
+            if to_role == role or not task_id:
+                continue
+            store.handoff_task(task_id, role, to_role, handoff["message"])
+            store.push_outbox(
+                role,
+                {
+                    "type": "progress_update",
+                    "task_id": task_id,
+                    "from_role": role,
+                    "reply_channel_id": item.get("reply_channel_id") or (task or {}).get("thread_id"),
+                    "message": (
+                        f"`{task_id}` 작업을 {ROLE_SPECS[to_role].display_name}에게 분배했습니다.\n"
+                        f"전달 내용: {handoff['message']}"
+                    ),
+                    "guidance": ROLE_GUIDANCE[role],
+                },
+            )
 
         store.push_outbox(
             role,
