@@ -162,6 +162,8 @@ def reply_channel_for(role: str, item: Dict, task: Optional[Dict]) -> Optional[s
 
 
 def push_progress_update(store: TaskStore, role: str, item: Dict, task: Optional[Dict], message: str) -> None:
+    if task and task.get("quiet_progress") and role == "pm":
+        return
     store.push_outbox(
         role,
         {
@@ -193,6 +195,7 @@ def maybe_report_upstream(store: TaskStore, role: str, task_id: Optional[str], r
     parent_role = parent_role_for(role)
     if not parent_role or not task_id:
         return
+    store.record_upstream_report(task_id, role, reply)
     store.push_inbox(
         parent_role,
         {
@@ -203,6 +206,29 @@ def maybe_report_upstream(store: TaskStore, role: str, task_id: Optional[str], r
             "message": reply,
         },
     )
+
+
+def should_send_summary(role: str, item: Dict, task: Optional[Dict], reply_payload: Dict) -> bool:
+    if role != "pm":
+        return True
+    if not task or not task.get("quiet_final_channel"):
+        return True
+
+    item_type = item.get("type")
+    handoffs = list(reply_payload.get("handoffs", []))
+
+    if item_type == "task_created":
+        return not handoffs
+
+    if item_type == "task_report":
+        pending = set(task.get("pending_reports", []))
+        completed = set(task.get("completed_reports", []))
+        return bool(pending) and pending.issubset(completed)
+
+    if item_type == "role_chat":
+        return True
+
+    return False
     store.append_event(
         "task_report",
         task_id,
@@ -676,19 +702,6 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
         reply_payload = build_role_reply(store, role, item, task)
         reply = reply_payload["reply"]
 
-        store.push_outbox(
-            role,
-            {
-                "type": "status_summary",
-                "task_id": task_id,
-                "from_role": role,
-                "reply_channel_id": reply_channel_for(role, item, task),
-                "message": reply,
-                "guidance": ROLE_GUIDANCE[role],
-                "notify_owner": role == "pm" and bool(task_id),
-            },
-        )
-
         if role != "pm":
             maybe_report_upstream(store, role, task_id, reply)
 
@@ -715,6 +728,23 @@ def process_inbox_items(store: TaskStore, role: str, items: List[Dict]) -> None:
                         f"전달 내용: {handoff['message']}"
                     ),
                     "guidance": ROLE_GUIDANCE[role],
+                },
+            )
+
+        task = store.get_task(task_id) if task_id else task
+
+        if should_send_summary(role, item, task, reply_payload):
+            store.push_outbox(
+                role,
+                {
+                    "type": "status_summary",
+                    "task_id": task_id,
+                    "from_role": role,
+                    "reply_channel_id": reply_channel_for(role, item, task),
+                    "message": reply,
+                    "guidance": ROLE_GUIDANCE[role],
+                    "notify_owner": role == "pm" and bool(task_id) and not (task or {}).get("quiet_final_channel"),
+                    "report_format": (task or {}).get("report_format"),
                 },
             )
 

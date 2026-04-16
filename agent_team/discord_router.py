@@ -162,6 +162,12 @@ def processing_ack_message(role: str, task_id: str, is_new_task: bool = False) -
     )
 
 
+def format_report_body(message_text: str, report_format: Optional[str]) -> str:
+    if report_format == "codeblock":
+        return f"```\n{message_text}\n```"
+    return message_text
+
+
 TASK_ID_PATTERN = re.compile(r"(#\d+|TASK-\d{8}-\d{6}-[a-z0-9]{4})", re.IGNORECASE)
 ALERT_TAG_PATTERN = re.compile(r"^\[(주의|차단|리스크)\]")
 
@@ -364,6 +370,8 @@ def run_discord_bot() -> int:
             content = (message.content or "").strip()
             channel_name = getattr(message.channel, "name", "unknown")
             channel_role = incoming_channel_roles.get(message.channel.id)
+            communication_channel_id = named_channels.get("communication")
+            is_communication_channel = bool(communication_channel_id and int(message.channel.id) == int(communication_channel_id))
 
             if channel_role and not content.startswith("!"):
                 print(f"Received chat in #{channel_name} for role {channel_role}: {content}", flush=True)
@@ -372,11 +380,15 @@ def run_discord_bot() -> int:
                 if channel_role == "pm" and task_id is None:
                     task = store.create_task(
                         content,
-                        source="discord-chat",
+                        source="discord-communication" if is_communication_channel else "discord-chat",
                         thread_id=str(message.channel.id),
                         requester_user_id=str(message.author.id),
+                        quiet_progress=is_communication_channel,
+                        quiet_final_channel=is_communication_channel,
+                        report_format="codeblock" if is_communication_channel else None,
                     )
-                    await message.reply(processing_ack_message("pm", task["task_id"], is_new_task=True))
+                    if not is_communication_channel:
+                        await message.reply(processing_ack_message("pm", task["task_id"], is_new_task=True))
                     return
 
                 if task_id:
@@ -394,7 +406,8 @@ def run_discord_bot() -> int:
                         "requester_user_id": str(message.author.id),
                     },
                 )
-                await message.reply(processing_ack_message(channel_role, task_id or "-", is_new_task=False))
+                if not is_communication_channel:
+                    await message.reply(processing_ack_message(channel_role, task_id or "-", is_new_task=False))
                 return
 
             if not content.startswith("!"):
@@ -596,7 +609,8 @@ def run_discord_bot() -> int:
                         mention_text = mention_for_task(task, payload)
                     if mention_text is None:
                         mention_text = completion_mention_for_task(task, payload)
-                    body = f"{header}\n{payload.get('message', '')}"
+                    message_body = format_report_body(payload.get("message", ""), payload.get("report_format"))
+                    body = f"{header}\n{message_body}"
                     if mention_text:
                         body = f"{mention_text}\n{body}"
                     try:

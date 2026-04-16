@@ -166,6 +166,7 @@ class TaskStore:
         source: str = "local",
         thread_id: Optional[str] = None,
         requester_user_id: Optional[str] = None,
+        **extra,
     ) -> Dict:
         tasks = self.load_tasks()
         task_id = self._next_ticket_id(tasks)
@@ -187,6 +188,7 @@ class TaskStore:
             "requester_user_id": requester_user_id,
             "last_requester_user_id": requester_user_id,
         }
+        task.update(extra)
         tasks[task_id] = task
         self.save_tasks(tasks)
         self.append_event("task_created", task_id, title, from_role="user", to_role="pm")
@@ -229,7 +231,17 @@ class TaskStore:
         return tasks[task_id]
 
     def handoff_task(self, task_id: str, from_role: str, to_role: str, message: str) -> Dict:
-        task = self.update_task(task_id, assigned_role=to_role, handoff_from=from_role, handoff_to=to_role)
+        task = self.get_task(task_id)
+        pending_reports = list((task or {}).get("pending_reports", []))
+        if from_role == "pm" and to_role not in pending_reports:
+            pending_reports.append(to_role)
+        task = self.update_task(
+            task_id,
+            assigned_role=to_role,
+            handoff_from=from_role,
+            handoff_to=to_role,
+            pending_reports=pending_reports,
+        )
         self.append_event("task_handoff", task_id, message, from_role=from_role, to_role=to_role)
         self.push_inbox(
             to_role,
@@ -242,6 +254,25 @@ class TaskStore:
             },
         )
         return task
+
+    def record_upstream_report(self, task_id: str, from_role: str, message: str) -> Dict:
+        task = self.get_task(task_id) or {}
+        completed_reports = list(task.get("completed_reports", []))
+        if from_role not in completed_reports:
+            completed_reports.append(from_role)
+        upstream_reports = list(task.get("upstream_reports", []))
+        upstream_reports.append(
+            {
+                "from_role": from_role,
+                "message": message,
+                "created_at": now_iso(),
+            }
+        )
+        return self.update_task(
+            task_id,
+            completed_reports=completed_reports,
+            upstream_reports=upstream_reports[-20:],
+        )
 
     def set_role_heartbeat(self, role: str, status: str, note: str = "") -> None:
         role_state = self.load_role_state()

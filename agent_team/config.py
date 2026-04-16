@@ -100,6 +100,7 @@ def discord_channel_map() -> Dict[str, Dict]:
 
     router_channel = parse_channel_id(os.environ.get("DISCORD_ROUTER_CHANNEL_ID")) or parse_channel_id(os.environ.get("DISCORD_CHANNEL_ID"))
     pm_channel = parse_channel_id(os.environ.get("DISCORD_PM_CHANNEL_ID"))
+    communication_channel = parse_channel_id(os.environ.get("DISCORD_COMMUNICATION_CHANNEL_ID"))
     backend_channel = parse_channel_id(os.environ.get("DISCORD_BACKEND_CHANNEL_ID"))
     frontend_channel = parse_channel_id(os.environ.get("DISCORD_FRONTEND_CHANNEL_ID"))
     qa_channel = parse_channel_id(os.environ.get("DISCORD_QA_CHANNEL_ID"))
@@ -113,6 +114,10 @@ def discord_channel_map() -> Dict[str, Dict]:
         incoming[pm_channel] = "pm"
         outgoing["pm"] = pm_channel
         named["pm"] = pm_channel
+
+    if communication_channel:
+        incoming[communication_channel] = "pm"
+        named["communication"] = communication_channel
 
     if backend_channel:
         incoming[backend_channel] = "be-lead"
